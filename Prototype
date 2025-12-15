@@ -1,0 +1,938 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Plus, Trash2, Edit2, History, Wallet, Calendar, Users, 
+  Calculator, ArrowRight, Save, X, HandCoins, ArrowLeftRight, 
+  CheckCircle2, Settings, AlertTriangle, PlusCircle, MinusCircle, 
+  Sparkles, UserCircle, Eye, Mail, Tag, BarChart3, PieChart,
+  ChevronLeft, ChevronRight, Filter, Clock, Paperclip, FileText, 
+  Image as ImageIcon, Upload, Percent
+} from 'lucide-react';
+
+const App = () => {
+  // --- State Management: Users & Roles ---
+  const [users, setUsers] = useState([
+    { id: 1, name: 'คุณเจ', email: 'jay@example.com', role: 'Admin' },
+    { id: 2, name: 'คุณนี', email: 'nee@example.com', role: 'Member' }
+  ]);
+  const [currentUser, setCurrentUser] = useState(users[0]);
+
+  // --- State Management: Categories ---
+  const [categories, setCategories] = useState([
+    'ทั่วไป', 'อาหาร', 'เดินทาง', 'น้ำมัน', 'เครื่องดื่ม', 'บันเทิง', 
+    'ค่าน้ำค่าไฟ', 'ค่าบ้าน', 'ค่ารถ'
+  ]);
+
+  // --- State Management: Data ---
+  const [expenses, setExpenses] = useState([
+    { 
+      id: '1', title: 'เติมน้ำมัน (ครั้งที่ 1)', amount: 1500, payer: 'คุณเจ', type: 'shared', split: 50, category: 'น้ำมัน', date: new Date(new Date().setDate(new Date().getDate() - 2)).toISOString(), note: 'เต็มถัง', attachments: [] 
+    },
+    { 
+      id: '2', title: 'เติมน้ำมัน (ครั้งที่ 2)', amount: 1000, payer: 'คุณเจ', type: 'shared', split: 50, category: 'น้ำมัน', date: new Date(new Date().setDate(new Date().getDate() - 1)).toISOString(), note: 'เกินงบแน่ๆ', attachments: [] 
+    },
+    { 
+      id: '3', title: 'ค่าทางด่วน', amount: 100, payer: 'คุณเจ', type: 'shared', split: 50, category: 'เดินทาง', date: new Date().toISOString(), note: '', attachments: [] 
+    },
+    { 
+      id: '4', title: 'เติมน้ำมัน (คุณนีช่วยออก)', amount: 500, payer: 'คุณนี', type: 'shared', split: 50, category: 'น้ำมัน', date: new Date().toISOString(), note: 'ช่วยออกส่วนเกิน', attachments: [] 
+    },
+  ]);
+
+  const [logs, setLogs] = useState([]);
+  const [activeTab, setActiveTab] = useState('expenses'); 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  // New State for Viewing Attachments
+  const [viewingAttachments, setViewingAttachments] = useState(null);
+
+  // Cycle Selection State
+  const [viewDate, setViewDate] = useState(new Date());
+
+  // Category View Mode
+  const [categoryViewMode, setCategoryViewMode] = useState('total');
+
+  // Filter States
+  const [filterMode, setFilterMode] = useState('last3');
+  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Budget Config
+  const [showBudgetConfig, setShowBudgetConfig] = useState(false);
+  const [budgetRules, setBudgetRules] = useState([
+    { id: 1, category: 'น้ำมัน', limit: 2000, owner: 'คุณเจ', excessPayer: 'คุณนี' },
+  ]);
+
+  // Forms
+  const [formData, setFormData] = useState({
+    title: '', 
+    amount: '', 
+    payer: currentUser.name, 
+    type: 'shared', 
+    split: 50, // Default 50% for User[0]
+    category: 'ทั่วไป', 
+    note: '', 
+    date: new Date().toISOString().split('T')[0],
+    attachments: []
+  });
+  
+  const [userFormData, setUserFormData] = useState({ id: null, name: '', email: '' });
+  const [categoryFormData, setCategoryFormData] = useState('');
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+  // Helpers
+  const formatMoney = (amount) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount);
+
+  const addLog = (action, title, amount, payer) => {
+    const detail = amount 
+      ? `"${title}" (${formatMoney(amount)}) โดย ${payer}`
+      : `"${title}"`;
+
+    const newLog = {
+      id: Date.now().toString(),
+      timestamp: new Date(),
+      action,
+      detail,
+      actor: currentUser.name 
+    };
+    setLogs(prev => [newLog, ...prev]);
+  };
+
+  const detectCategory = (title) => {
+    const t = title.toLowerCase();
+    const sortedCats = [...categories].sort((a, b) => b.length - a.length);
+    const matchedCat = sortedCats.find(cat => t.includes(cat.toLowerCase()));
+    if (matchedCat) return matchedCat;
+
+    if (t.includes('ปั๊ม') || t.includes('gas') || t.includes('ptt') || t.includes('shell')) return 'น้ำมัน';
+    if (t.includes('ข้าว') || t.includes('อาหาร') || t.includes('mk') || t.includes('buffet') || t.includes('suki') || t.includes('shabu')) return 'อาหาร';
+    if (t.includes('ทางด่วน') || t.includes('bts') || t.includes('mrt') || t.includes('grab') || t.includes('taxi')) return 'เดินทาง';
+    if (t.includes('กาแฟ') || t.includes('cafe') || t.includes('coffee') || t.includes('starbucks') || t.includes('amazon') || t.includes('ชา')) return 'เครื่องดื่ม';
+    if (t.includes('หนัง') || t.includes('cinema') || t.includes('netflix') || t.includes('game')) return 'บันเทิง';
+    if (t.includes('ไฟ') || t.includes('ประปา') || t.includes('เน็ต') || t.includes('wifi')) return 'ค่าน้ำค่าไฟ';
+    if (t.includes('เช่า') || t.includes('ห้อง') || t.includes('condo') || t.includes('บ้าน') || t.includes('ส่วนกลาง')) return 'ค่าบ้าน';
+    if (t.includes('งวด') || t.includes('ประกัน') || t.includes('พรบ') || t.includes('ล้างรถ')) return 'ค่ารถ';
+    
+    return null;
+  };
+
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      amount: '',
+      payer: currentUser.name,
+      type: 'shared',
+      split: 50,
+      category: categories[0] || 'ทั่วไป',
+      note: '',
+      date: new Date().toISOString().split('T')[0],
+      attachments: []
+    });
+    setEditingId(null);
+  };
+
+  // --- File Handling ---
+  const handleFileChange = async (e) => {
+    const files = Array.from(e.target.files);
+    const newAttachments = await Promise.all(files.map(file => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve({ name: file.name, type: file.type, data: reader.result });
+        reader.onerror = error => reject(error);
+      });
+    }));
+    setFormData(prev => ({ ...prev, attachments: [...prev.attachments, ...newAttachments] }));
+  };
+
+  const removeAttachment = (index) => {
+    setFormData(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
+  };
+
+  // --- Cycle Logic ---
+  const getCycleRange = (dateInput) => {
+    const date = new Date(dateInput);
+    const day = date.getDate();
+    const month = date.getMonth();
+    const year = date.getFullYear();
+    let startDate, endDate, cycleName;
+
+    if (day >= 5) {
+      startDate = new Date(year, month, 5);
+      endDate = new Date(year, month + 1, 4, 23, 59, 59); 
+      const nextMonthDate = new Date(year, month + 1, 1);
+      cycleName = `รอบ 5 ${date.toLocaleString('th-TH', { month: 'short' })} - 4 ${nextMonthDate.toLocaleString('th-TH', { month: 'short' })}`;
+    } else {
+      startDate = new Date(year, month - 1, 5);
+      endDate = new Date(year, month, 4, 23, 59, 59); 
+      const prevMonthDate = new Date(year, month - 1, 1);
+      cycleName = `รอบ 5 ${prevMonthDate.toLocaleString('th-TH', { month: 'short' })} - 4 ${date.toLocaleString('th-TH', { month: 'short' })}`;
+    }
+    return { startDate, endDate, cycleName };
+  };
+
+  const currentCycleInfo = useMemo(() => getCycleRange(viewDate), [viewDate]);
+
+  const changeCycle = (months) => {
+    const newDate = new Date(viewDate);
+    newDate.setMonth(newDate.getMonth() + months);
+    setViewDate(newDate);
+  };
+
+  // --- Calculation Logic ---
+  const calculation = useMemo(() => {
+    let totalShared = 0;
+    const stats = {}; 
+    users.forEach(u => stats[u.name] = { paid: 0, cost: 0, personal: 0, netBalance: 0 });
+    
+    const categoryStats = {};
+    categories.forEach(c => {
+       categoryStats[c] = { total: 0, users: {} };
+       users.forEach(u => categoryStats[c].users[u.name] = 0);
+    });
+
+    const categoryTotals = {};
+    const categoryPaid = {};
+
+    const expensesInCycle = expenses.filter(exp => {
+      const d = new Date(exp.date);
+      return d >= currentCycleInfo.startDate && d <= currentCycleInfo.endDate;
+    });
+
+    expensesInCycle.forEach(exp => {
+      const val = parseFloat(exp.amount);
+      const payerName = exp.payer;
+      if (!stats[payerName]) stats[payerName] = { paid: 0, cost: 0, personal: 0, netBalance: 0 };
+
+      if (exp.type === 'transfer') {
+        const receiver = users.find(u => u.name !== payerName)?.name;
+        if (receiver) {
+           if (!stats[receiver]) stats[receiver] = { paid: 0, cost: 0, personal: 0, netBalance: 0 };
+           stats[payerName].transferOut = (stats[payerName].transferOut || 0) + val;
+           stats[receiver].transferIn = (stats[receiver].transferIn || 0) + val;
+        }
+        return;
+      }
+
+      stats[payerName].paid += val;
+
+      if (categoryStats[exp.category]) {
+          categoryStats[exp.category].total += val;
+          categoryStats[exp.category].users[payerName] = (categoryStats[exp.category].users[payerName] || 0) + val;
+      }
+
+      if (!categoryPaid[exp.category]) categoryPaid[exp.category] = {};
+      if (!categoryPaid[exp.category][payerName]) categoryPaid[exp.category][payerName] = 0;
+      categoryPaid[exp.category][payerName] += val;
+
+      const rule = budgetRules.find(r => r.category === exp.category);
+      if (exp.type === 'shared') {
+        totalShared += val;
+        if (rule) {
+          // If rule exists, it governs the split of the TOTAL later
+          categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + val;
+        } else {
+          // No rule: use split percentage (default 50/50 or custom)
+          const split = exp.split !== undefined ? exp.split : 50;
+          const share0 = val * (split / 100);
+          const share1 = val - share0;
+          
+          stats[users[0].name].cost += share0;
+          stats[users[1].name].cost += share1;
+        }
+      } else if (exp.type === 'personal') {
+        stats[payerName].cost += val;
+        stats[payerName].personal += val;
+      } else if (exp.type === 'advance') {
+        const others = users.filter(u => u.name !== payerName);
+        others.forEach(u => { stats[u.name].cost += val / others.length; stats[u.name].personal += val / others.length; });
+      }
+    });
+
+    const budgetStatus = [];
+    budgetRules.forEach(rule => {
+        const catTotal = categoryTotals[rule.category] || 0;
+        let ownerCost = 0, excessCost = 0, isExceeded = false, excessAmount = 0;
+
+        if (catTotal <= rule.limit) {
+            ownerCost = catTotal;
+        } else {
+            isExceeded = true;
+            ownerCost = rule.limit;
+            excessCost = catTotal - rule.limit;
+            excessAmount = excessCost;
+        }
+
+        if (stats[rule.owner]) stats[rule.owner].cost += ownerCost;
+        if (stats[rule.excessPayer]) stats[rule.excessPayer].cost += excessCost;
+
+        const excessPayerPaidAmount = categoryPaid[rule.category]?.[rule.excessPayer] || 0;
+        const excessPayerNet = excessAmount - excessPayerPaidAmount; 
+        
+        budgetStatus.push({
+            ...rule, total: catTotal, excess: excessAmount, isExceeded,
+            excessPayerPaid: excessPayerPaidAmount, excessPayerNet: excessPayerNet
+        });
+    });
+
+    users.forEach(u => {
+       const s = stats[u.name];
+       s.netBalance = (s.paid + (s.transferOut || 0)) - (s.cost + (s.transferIn || 0));
+    });
+
+    const sortedCategories = Object.entries(categoryStats)
+       .filter(([_, data]) => data.total > 0)
+       .sort((a, b) => b[1].total - a[1].total);
+
+    return { totalShared, splitAmount: totalShared / users.length, stats, budgetStatus, sortedCategories };
+  }, [expenses, users, budgetRules, categories, currentCycleInfo]);
+
+  // Handlers
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'title') {
+       const detected = detectCategory(value);
+       if (detected) setFormData(prev => ({ ...prev, [name]: value, category: detected }));
+       else setFormData(prev => ({ ...prev, [name]: value }));
+    } else setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.title && formData.type !== 'transfer') return;
+    let finalTitle = formData.title;
+    if (formData.type === 'transfer' && !finalTitle) finalTitle = 'โอนคืน / จ่ายคืน';
+    const amt = parseFloat(formData.amount);
+    
+    // Time Logic: Preserve time if date selected is today/past
+    const now = new Date();
+    const [year, month, day] = formData.date.split('-').map(Number);
+    const dateWithTime = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+    const dateToSave = dateWithTime.toISOString();
+
+    if (editingId) {
+      setExpenses(prev => prev.map(exp => exp.id === editingId ? { ...formData, title: finalTitle, id: editingId, amount: amt, date: dateToSave } : exp));
+      addLog('แก้ไข', finalTitle, amt, formData.payer);
+      setEditingId(null);
+    } else {
+      setExpenses(prev => [{ ...formData, title: finalTitle, id: Date.now().toString(), amount: amt, date: dateToSave }, ...prev]);
+      addLog('เพิ่ม', finalTitle, amt, formData.payer);
+    }
+    setIsModalOpen(false);
+    resetForm();
+  };
+
+  const handleDelete = (id, title, amount, e) => {
+    if (e) e.stopPropagation(); 
+    setExpenses(prev => prev.filter(exp => exp.id !== id));
+    addLog('ลบ', title, amount, currentUser.name);
+  };
+
+  const handleUserSubmit = (e) => {
+    e.preventDefault();
+    if (userFormData.id) {
+        const oldName = users.find(u => u.id === userFormData.id)?.name;
+        const newName = userFormData.name;
+        setUsers(prev => prev.map(u => u.id === userFormData.id ? userFormData : u));
+        if (oldName !== newName) {
+            setExpenses(prev => prev.map(exp => exp.payer === oldName ? { ...exp, payer: newName } : exp));
+            setBudgetRules(prev => prev.map(rule => ({ ...rule, owner: rule.owner === oldName ? newName : rule.owner, excessPayer: rule.excessPayer === oldName ? newName : rule.excessPayer })));
+            if (currentUser.name === oldName) setCurrentUser({ ...currentUser, name: newName });
+        }
+    }
+    setIsUserModalOpen(false);
+  };
+
+  const handleCategorySubmit = (e) => {
+      e.preventDefault();
+      const newCat = categoryFormData.trim();
+      if (newCat && !categories.includes(newCat)) {
+          setCategories(prev => [...prev, newCat]);
+          setCategoryFormData('');
+          setIsCategoryModalOpen(false);
+      }
+  };
+
+  const handleDeleteCategory = (cat) => {
+      if (confirm(`ลบหมวดหมู่ ${cat}?`)) setCategories(prev => prev.filter(c => c !== cat));
+  };
+
+  const addBudgetRule = () => setBudgetRules(prev => [...prev, { id: Date.now(), category: categories[0], limit: 1000, owner: users[0].name, excessPayer: users[1].name }]);
+  const removeBudgetRule = (id) => setBudgetRules(prev => prev.filter(rule => rule.id !== id));
+  const updateBudgetRule = (id, field, value) => setBudgetRules(prev => prev.map(rule => rule.id === id ? { ...rule, [field]: value } : rule));
+
+  // --- UI Components ---
+  const FilterBar = () => (
+     <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-2 pt-1">
+        <span className="text-xs font-bold text-gray-400 whitespace-nowrap flex items-center gap-1">
+           <Filter className="w-3 h-3"/> กรอง:
+        </span>
+        <button onClick={() => setFilterMode('last3')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterMode === 'last3' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
+           <Clock className="w-3 h-3"/> 3 วันล่าสุด
+        </button>
+        <button onClick={() => setFilterMode('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${filterMode === 'all' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
+           ทั้งหมด ({activeTab === 'expenses' ? 'ในรอบ' : 'ตลอด'})
+        </button>
+        <div className="relative">
+           <input type="date" value={filterDate} onChange={(e) => { setFilterDate(e.target.value); setFilterMode('date'); }} className={`pl-8 pr-2 py-1.5 rounded-lg text-xs font-bold border outline-none transition-colors ${filterMode === 'date' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}/>
+           <Calendar className={`w-3 h-3 absolute left-2.5 top-2 ${filterMode === 'date' ? 'text-orange-500' : 'text-gray-400'}`} />
+        </div>
+     </div>
+  );
+
+  // Filtered Display Data
+  const expensesInCycle = useMemo(() => {
+    const { startDate, endDate } = currentCycleInfo;
+    return expenses.filter(exp => {
+      const d = new Date(exp.date);
+      return d >= startDate && d <= endDate;
+    });
+  }, [expenses, currentCycleInfo]);
+
+  const displayedExpenses = useMemo(() => {
+    let data = [...expensesInCycle];
+    data.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    if (filterMode === 'last3') {
+       const today = new Date();
+       const threeDaysAgo = new Date();
+       threeDaysAgo.setDate(today.getDate() - 3);
+       threeDaysAgo.setHours(0, 0, 0, 0);
+       data = data.filter(exp => new Date(exp.date) >= threeDaysAgo);
+    } else if (filterMode === 'date') {
+       const target = new Date(filterDate).toDateString();
+       data = data.filter(exp => new Date(exp.date).toDateString() === target);
+    }
+    return data;
+  }, [expensesInCycle, filterMode, filterDate]);
+
+  const displayedLogs = useMemo(() => {
+    let data = [...logs];
+    data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (filterMode === 'last3') {
+       const threeDaysAgo = new Date();
+       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+       threeDaysAgo.setHours(0, 0, 0, 0);
+       data = data.filter(l => new Date(l.timestamp) >= threeDaysAgo);
+    } else if (filterMode === 'date') {
+       const target = new Date(filterDate).toDateString();
+       data = data.filter(l => new Date(l.timestamp).toDateString() === target);
+    }
+    return data;
+  }, [logs, filterMode, filterDate]);
+
+  return (
+    <div className="min-h-screen bg-gray-100 font-kanit pb-24">
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap'); .font-kanit { font-family: 'Kanit', sans-serif; }`}</style>
+
+      {/* Header */}
+      <div className="bg-gradient-to-r from-[#FF8C42] to-[#F6C700] text-white px-6 pt-8 pb-24 rounded-b-[2rem] shadow-lg relative z-0">
+        <div className="flex justify-between items-start max-w-2xl mx-auto mb-2">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Wallet className="w-8 h-8" /> ShareJai
+            </h1>
+            <p className="text-orange-50 text-sm mt-1 opacity-90">แชร์ค่าใช้จ่าย ง่ายนิดเดียว</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+             <div className="flex items-center gap-2 bg-white/20 p-1 pl-3 pr-1 rounded-full backdrop-blur-sm">
+                <span className="text-[10px] font-bold text-white flex items-center gap-1"><Eye className="w-3 h-3"/> มุมมอง:</span>
+                <select 
+                   value={currentUser.id}
+                   onChange={(e) => {
+                       const selected = users.find(u => u.id === parseInt(e.target.value));
+                       setCurrentUser(selected);
+                       setFormData(prev => ({ ...prev, payer: selected.name }));
+                   }}
+                   className="bg-white text-orange-600 text-xs font-bold py-1 px-2 rounded-full outline-none cursor-pointer"
+                >
+                   {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+             </div>
+             
+             {/* Cycle Selector */}
+             <div className="flex items-center bg-white/10 rounded-lg backdrop-blur-sm">
+                <button onClick={() => changeCycle(-1)} className="p-2 hover:bg-white/10 rounded-l-lg transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+                <div className="px-2 text-center">
+                   <span className="text-[10px] font-medium block text-orange-50">รอบบัญชี (ตัดทุกวันที่ 5)</span>
+                   <span className="text-xs font-bold block min-w-[120px]">{currentCycleInfo.cycleName}</span>
+                </div>
+                <button onClick={() => changeCycle(1)} className="p-2 hover:bg-white/10 rounded-r-lg transition-colors"><ChevronRight className="w-4 h-4"/></button>
+             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 -mt-20 relative z-10">
+        
+        {/* === MAIN DASHBOARD CARD === */}
+        <div className="bg-white rounded-3xl p-6 shadow-xl mb-6">
+          <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+             <h2 className="text-gray-800 font-bold text-lg flex items-center gap-2">
+               <Calculator className="w-5 h-5 text-orange-500" /> สรุปยอดสุทธิ
+             </h2>
+             <button onClick={() => setShowBudgetConfig(!showBudgetConfig)} className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-orange-100 font-medium">
+               <Settings className="w-3 h-3" /> ตั้งงบ
+             </button>
+          </div>
+
+          {/* Budget Widgets (Clean Version) */}
+          {calculation.budgetStatus.map((status) => (
+             <div key={status.id} className={`mb-4 p-4 rounded-2xl border ${status.isExceeded ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+                <div className="flex justify-between items-center mb-2">
+                   <span className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                      <AlertTriangle className={`w-3 h-3 ${status.isExceeded ? 'text-red-500' : 'text-green-500'}`} />
+                      งบ {status.category} ({formatMoney(status.limit)})
+                   </span>
+                   <span className={`text-xs font-bold ${status.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                      ใช้ไป {formatMoney(status.total)}
+                   </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3">
+                   <div className={`h-1.5 rounded-full ${status.isExceeded ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min((status.total / (status.limit || 1)) * 100, 100)}%` }}></div>
+                </div>
+
+                {status.isExceeded && (
+                   <div className="mt-3 text-[11px] bg-red-100/50 text-red-700 p-2 rounded-lg text-center font-bold border border-red-200">
+                      สรุป: {status.excessPayer} จ่ายไปแล้ว {formatMoney(status.excessPayerPaid)} 
+                      {status.excessPayerNet > 0 
+                         ? ` → ต้องจ่ายเพิ่มอีก ${formatMoney(status.excessPayerNet)}`
+                         : ` → จ่ายเกินไป ${formatMoney(Math.abs(status.excessPayerNet))}`
+                      }
+                   </div>
+                )}
+             </div>
+          ))}
+
+          {/* Global Stats */}
+          <div className="grid grid-cols-2 gap-4 text-center mb-6 mt-4">
+            <div className="bg-orange-50 p-3 rounded-2xl">
+               <p className="text-xs text-gray-500 mb-1">ยอดแชร์รวม</p>
+               <p className="text-xl font-bold text-orange-600">{formatMoney(calculation.totalShared)}</p>
+            </div>
+            <div className="bg-blue-50 p-3 rounded-2xl">
+               <p className="text-xs text-gray-500 mb-1">หารต่อคน (Base)</p>
+               <p className="text-xl font-bold text-blue-600">{formatMoney(calculation.splitAmount)}</p>
+            </div>
+          </div>
+
+          {/* Settlement Box */}
+          <div className="bg-gray-800 text-white rounded-2xl p-5 flex items-center justify-between shadow-lg">
+            <div className="flex flex-col">
+              <span className="text-xs text-gray-400 mb-1">ใครต้องโอนให้ใคร?</span>
+              {Math.abs(calculation.stats[users[0].name].netBalance) < 1 ? (
+                 <span className="font-bold text-green-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-4 h-4"/> เคลียร์ครบแล้ว</span>
+              ) : (
+                <div className="mt-1 text-lg font-bold text-yellow-400 flex items-center gap-2">
+                   {calculation.stats[users[1].name].netBalance < 0 ? (
+                      <>{users[1].name} <ArrowRight className="w-5 h-5"/> โอนคืน {users[0].name}</>
+                   ) : (
+                      <>{users[0].name} <ArrowRight className="w-5 h-5"/> โอนคืน {users[1].name}</>
+                   )}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <span className="text-3xl font-bold tracking-tighter">
+                 {Math.abs(calculation.stats[users[0].name].netBalance) < 1 ? '฿0' : formatMoney(Math.abs(calculation.stats[users[0].name].netBalance))}
+              </span>
+            </div>
+          </div>
+
+          {/* User Breakdowns */}
+          <div className="mt-8 pt-4 border-t border-gray-100">
+             <h3 className="text-sm font-bold text-gray-600 mb-4">สรุปค่าใช้จ่ายจริง (ตามงบที่ตั้ง)</h3>
+             <div className="grid grid-cols-2 gap-4">
+                {users.map((u, idx) => {
+                   const s = calculation.stats[u.name];
+                   const isPositive = s.netBalance > 0;
+                   return (
+                       <div key={u.id} className={`rounded-xl p-3 border relative overflow-hidden ${currentUser.name === u.name ? 'bg-yellow-50/50 border-yellow-200' : 'bg-white border-gray-100'}`}>
+                          {Math.abs(s.netBalance) > 1 && (
+                             <div className={`absolute top-0 right-0 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}>
+                                {isPositive ? `รับ ${formatMoney(s.netBalance)}` : `จ่าย ${formatMoney(Math.abs(s.netBalance))}`}
+                             </div>
+                          )}
+                          <div className="flex items-center gap-2 mb-3 mt-1">
+                             <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
+                             <span className="font-bold text-gray-700 text-sm">{u.name}</span>
+                          </div>
+                          <div className="space-y-1.5 text-xs text-gray-500">
+                             <div className="flex justify-between"><span>ส่วนตัว/คนอื่นออกให้</span><span>{formatMoney(s.personal)}</span></div>
+                             <div className="flex justify-between"><span>ส่วนแบ่งค่าใช้จ่าย</span><span>{formatMoney(s.cost - s.personal)}</span></div>
+                             <div className={`border-t pt-1 mt-1 flex justify-between font-bold ${idx === 0 ? 'border-orange-100 text-orange-700' : 'border-blue-100 text-blue-700'}`}>
+                                <span>รวมต้นทุนจริง</span><span>{formatMoney(s.cost)}</span>
+                             </div>
+                             <div className="flex justify-between text-gray-400"><span>จ่ายไปแล้ว</span><span>{formatMoney(s.paid)}</span></div>
+                          </div>
+                       </div>
+                   );
+                })}
+             </div>
+          </div>
+        </div>
+
+        {/* === CATEGORY SUMMARY CARD === */}
+        <div className="bg-white rounded-3xl p-6 shadow-md mb-6">
+           <div className="flex justify-between items-center mb-4">
+              <h2 className="text-gray-800 font-bold text-lg flex items-center gap-2"><PieChart className="w-5 h-5 text-orange-500"/> สรุปตามหมวดหมู่</h2>
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                 <button onClick={() => setCategoryViewMode('total')} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${categoryViewMode === 'total' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400'}`}>รวม</button>
+                 <button onClick={() => setCategoryViewMode('separate')} className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${categoryViewMode === 'separate' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400'}`}>แยก</button>
+              </div>
+           </div>
+           
+           <div className="space-y-3">
+              {calculation.sortedCategories.length === 0 ? (
+                 <p className="text-center text-gray-300 text-sm py-4">ยังไม่มีข้อมูล</p>
+              ) : (
+                 calculation.sortedCategories.map(([cat, data]) => (
+                    <div key={cat} className="mb-2">
+                       <div className="flex justify-between items-end mb-1">
+                          <span className="text-sm font-medium text-gray-700">{cat}</span>
+                          <span className="text-sm font-bold text-gray-900">{formatMoney(data.total)}</span>
+                       </div>
+                       
+                       {/* Bar */}
+                       <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden flex">
+                          {categoryViewMode === 'total' ? (
+                             <div className="h-full bg-orange-400" style={{ width: `${(data.total / calculation.sortedCategories[0][1].total) * 100}%` }}></div>
+                          ) : (
+                             users.map((u, idx) => {
+                                const userShare = data.users[u.name] || 0;
+                                const pct = (userShare / data.total) * 100;
+                                if (pct === 0) return null;
+                                return <div key={u.id} className={`h-full ${idx === 0 ? 'bg-orange-400' : 'bg-blue-400'}`} style={{ width: `${pct}%` }}></div>;
+                             })
+                          )}
+                       </div>
+                       
+                       {/* Legend for Separate Mode */}
+                       {categoryViewMode === 'separate' && (
+                          <div className="flex justify-end gap-3 mt-1 text-[10px] text-gray-400">
+                             {users.map((u, idx) => {
+                                const val = data.users[u.name] || 0;
+                                if (val === 0) return null;
+                                return (
+                                   <span key={u.id} className="flex items-center gap-1">
+                                      <div className={`w-1.5 h-1.5 rounded-full ${idx === 0 ? 'bg-orange-400' : 'bg-blue-400'}`}></div>
+                                      {u.name} {formatMoney(val)}
+                                   </span>
+                                );
+                             })}
+                          </div>
+                       )}
+                    </div>
+                 ))
+              )}
+           </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
+           {[
+             { id: 'expenses', label: 'รายการ', icon: Calculator },
+             { id: 'logs', label: 'ประวัติ', icon: History },
+             { id: 'users', label: 'ผู้ใช้', icon: Users },
+             { id: 'categories', label: 'หมวดหมู่', icon: Tag },
+           ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === tab.id ? 'bg-orange-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
+              >
+                 <tab.icon className="w-3 h-3"/> {tab.label}
+              </button>
+           ))}
+        </div>
+
+        {/* === CONTENT AREA === */}
+        {activeTab === 'expenses' && (
+            <div className="space-y-3 mb-32">
+               <FilterBar />
+               {displayedExpenses.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300"><p>ไม่มีรายการในช่วงเวลานี้</p></div>
+               ) : (
+                  displayedExpenses.map((exp) => (
+                    <div key={exp.id} className={`p-4 rounded-2xl shadow-sm border flex justify-between items-center group relative overflow-hidden bg-white border-gray-100 hover:shadow-md transition-shadow`}>
+                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${exp.payer === users[0].name ? 'bg-orange-400' : 'bg-blue-400'}`}></div>
+                      <div className="flex-1 ml-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-bold text-gray-800 text-sm">{exp.title}</h3>
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded-full">{exp.category}</span>
+                          {exp.type === 'transfer' && <span className="px-2 py-0.5 bg-green-100 text-green-600 text-[10px] rounded-full">โอนเงิน</span>}
+                          {exp.type === 'advance' && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] rounded-full">ออกให้</span>}
+                          {exp.attachments && exp.attachments.length > 0 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded-full flex items-center gap-1"><Paperclip className="w-3 h-3"/> {exp.attachments.length}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(exp.date).toLocaleDateString('th-TH')}</span>
+                          <span>•</span>
+                          <span className="flex items-center gap-1"><UserCircle className="w-3 h-3"/> จ่ายโดย {exp.payer}</span>
+                        </div>
+                        {exp.note && <p className="text-xs text-gray-400 mt-1 italic pl-2 border-l-2 border-gray-200">"{exp.note}"</p>}
+                      </div>
+                      <div className="text-right pl-3">
+                        <p className={`font-bold text-lg ${exp.type === 'transfer' ? 'text-green-600' : 'text-gray-800'}`}>{formatMoney(exp.amount)}</p>
+                        <div className="flex gap-2 justify-end mt-2 opacity-30 group-hover:opacity-100 transition-opacity">
+                          {exp.attachments && exp.attachments.length > 0 && (
+                             <button onClick={() => setViewingAttachments(exp)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Paperclip className="w-3 h-3"/></button>
+                          )}
+                          <button onClick={() => { setFormData({...exp, date: exp.date.split('T')[0]}); setEditingId(exp.id); setIsModalOpen(true); }} className="p-1.5 bg-yellow-100 text-yellow-600 rounded-lg hover:bg-yellow-200"><Edit2 className="w-3 h-3"/></button>
+                          <button onClick={(e) => handleDelete(exp.id, exp.title, exp.amount, e)} className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><Trash2 className="w-3 h-3"/></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+               )}
+            </div>
+        )}
+
+        {/* Other Tabs content omitted for brevity, logic remains same */}
+        {activeTab === 'users' && (
+           <div className="bg-white rounded-2xl p-6 shadow-sm mb-32">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4"><Users className="w-5 h-5"/> จัดการผู้ใช้งาน</h2>
+              <div className="space-y-3">
+                 {users.map(u => (
+                    <div key={u.id} className="flex justify-between items-center p-4 border border-gray-100 rounded-xl hover:bg-gray-50">
+                       <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500 font-bold text-lg">{u.name.charAt(0)}</div>
+                          <div><p className="font-bold text-gray-800">{u.name}</p><p className="text-xs text-gray-400 flex items-center gap-1"><Mail className="w-3 h-3"/> {u.email}</p></div>
+                       </div>
+                       <button onClick={() => { setUserFormData(u); setIsUserModalOpen(true); }} className="p-2 text-gray-400 hover:text-orange-500 bg-gray-50 hover:bg-orange-50 rounded-full"><Edit2 className="w-4 h-4"/></button>
+                    </div>
+                 ))}
+              </div>
+           </div>
+        )}
+        
+        {activeTab === 'categories' && (
+           <div className="bg-white rounded-2xl p-6 shadow-sm mb-32">
+              <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Tag className="w-5 h-5"/> จัดการหมวดหมู่</h2>
+                 <button onClick={() => setIsCategoryModalOpen(true)} className="bg-orange-100 text-orange-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-orange-200"><Plus className="w-3 h-3"/> เพิ่ม</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                 {categories.map(cat => (
+                    <div key={cat} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl bg-gray-50">
+                       <span className="text-sm font-medium text-gray-700">{cat}</span>
+                       <button onClick={() => handleDeleteCategory(cat)} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4"/></button>
+                    </div>
+                 ))}
+              </div>
+           </div>
+        )}
+        
+        {activeTab === 'logs' && (
+           <div className="space-y-3 mb-32">
+              <FilterBar />
+              {displayedLogs.length === 0 ? <div className="text-center py-10 text-gray-400 bg-white rounded-2xl">ไม่มีประวัติในช่วงเวลานี้</div> : 
+                 displayedLogs.map(log => (
+                    <div key={log.id} className="bg-white p-4 rounded-xl border-l-4 border-orange-400 shadow-sm">
+                       <div className="flex justify-between items-start mb-1">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${log.action === 'เพิ่ม' ? 'bg-green-100 text-green-700' : log.action === 'ลบ' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{log.action}</span>
+                          <span className="text-[10px] text-gray-400">{new Date(log.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} {new Date(log.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                       </div>
+                       <p className="text-sm text-gray-800 font-medium mt-1">{log.detail}</p>
+                       <p className="text-xs text-gray-400 mt-2 flex items-center gap-1 border-t pt-2"><UserCircle className="w-3 h-3"/> ทำรายการโดย: {log.actor}</p>
+                    </div>
+                 ))
+              }
+           </div>
+        )}
+
+        {/* Floating Add Button */}
+        {activeTab === 'expenses' && (
+          <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="fixed bottom-8 right-6 bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-full shadow-xl hover:scale-110 transition-transform z-30"><Plus className="w-8 h-8" /></button>
+        )}
+
+        {/* === MODALS === */}
+        {/* Attachment Viewer Modal */}
+        {viewingAttachments && (
+           <div className="fixed inset-0 bg-black/90 z-50 flex flex-col justify-center p-4 backdrop-blur-sm animate-in fade-in">
+              <div className="flex justify-between items-center text-white mb-4">
+                 <h2 className="text-lg font-bold">ไฟล์แนบ ({viewingAttachments.attachments.length})</h2>
+                 <button onClick={() => setViewingAttachments(null)} className="p-2 bg-white/20 rounded-full hover:bg-white/30"><X className="w-6 h-6"/></button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-4">
+                 {viewingAttachments.attachments.map((att, idx) => (
+                    <div key={idx} className="bg-white rounded-lg overflow-hidden">
+                       {att.type.startsWith('image/') ? (
+                          <img src={att.data} alt="attachment" className="w-full h-auto object-contain" />
+                       ) : (
+                          <div className="p-10 flex flex-col items-center justify-center text-gray-500 gap-2">
+                             <FileText className="w-12 h-12 text-red-400"/>
+                             <span className="text-sm font-bold">{att.name}</span>
+                             <a href={att.data} download={att.name} className="text-xs bg-gray-100 px-3 py-1 rounded-full mt-2 hover:bg-gray-200">ดาวน์โหลด PDF</a>
+                          </div>
+                       )}
+                       <div className="p-2 text-xs text-gray-500 bg-gray-50 text-center border-t">{att.name}</div>
+                    </div>
+                 ))}
+              </div>
+           </div>
+        )}
+
+        {/* Expense Modal (Updated with Split Slider) */}
+        {isModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">{editingId ? 'แก้ไขรายการ' : 'เพิ่มรายการใหม่'}</h2>
+                <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200"><X className="w-5 h-5" /></button>
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="bg-orange-50 p-1.5 rounded-xl flex gap-1">
+                   {['shared', 'personal', 'advance', 'transfer'].map(t => (
+                      <button key={t} type="button" onClick={() => setFormData(prev => ({...prev, type: t}))} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${formData.type === t ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:bg-white/50'}`}>
+                        {t === 'shared' ? 'หารกัน' : t === 'personal' ? 'ส่วนตัว' : t === 'advance' ? 'ออกให้' : 'โอนคืน'}
+                      </button>
+                   ))}
+                </div>
+
+                {/* Split Slider */}
+                {formData.type === 'shared' && (
+                   <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                      <div className="flex justify-between mb-2 text-xs font-bold text-gray-600">
+                         <span>{users[0].name} ({formData.split}%)</span>
+                         <span>{users[1].name} ({100 - formData.split}%)</span>
+                      </div>
+                      <input 
+                        type="range" min="0" max="100" step="5" 
+                        value={formData.split} 
+                        onChange={(e) => setFormData(prev => ({...prev, split: parseInt(e.target.value)}))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                      />
+                      {/* Amount preview */}
+                      {formData.amount > 0 && (
+                         <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+                            <span>{formatMoney(formData.amount * (formData.split/100))}</span>
+                            <span>{formatMoney(formData.amount * ((100-formData.split)/100))}</span>
+                         </div>
+                      )}
+                   </div>
+                )}
+
+                {formData.type !== 'transfer' && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 mb-1 flex justify-between">ชื่อรายการ <span className="text-orange-400 font-normal flex items-center gap-1"><Sparkles className="w-3 h-3"/> Auto-Tag</span></label>
+                    <input type="text" name="title" value={formData.title} onChange={handleInputChange} className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="เช่น ค่าข้าว, ค่าน้ำมัน..." required />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">จำนวนเงิน</label>
+                      <input type="number" name="amount" value={formData.amount} onChange={handleInputChange} className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="0.00" required />
+                   </div>
+                   <div>
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">วันที่</label>
+                      <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                   </div>
+                </div>
+                {/* File Attachment Input */}
+                <div>
+                   <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><Paperclip className="w-3 h-3"/> แนบรูป/ไฟล์ (เลือกได้หลายไฟล์)</label>
+                   <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition-colors relative">
+                      <input type="file" multiple accept="image/*,application/pdf" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
+                      <div className="flex flex-col items-center gap-1 text-gray-400">
+                         <Upload className="w-6 h-6"/>
+                         <span className="text-xs">แตะเพื่อเลือกรูปหรือ PDF</span>
+                      </div>
+                   </div>
+                   {formData.attachments && formData.attachments.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                         {formData.attachments.map((att, idx) => (
+                            <div key={idx} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg border border-gray-100">
+                               <div className="flex items-center gap-2 overflow-hidden">
+                                  {att.type.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-blue-500 flex-shrink-0"/> : <FileText className="w-4 h-4 text-red-500 flex-shrink-0"/>}
+                                  <span className="text-xs text-gray-600 truncate max-w-[150px]">{att.name}</span>
+                               </div>
+                               <button type="button" onClick={() => removeAttachment(idx)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4"/></button>
+                            </div>
+                         ))}
+                      </div>
+                   )}
+                </div>
+
+                {formData.type !== 'transfer' && (
+                   <div>
+                      <label className="text-xs font-bold text-gray-500 mb-1 block">หมวดหมู่</label>
+                      <div className="relative">
+                        <select name="category" value={formData.category} onChange={handleInputChange} className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 appearance-none focus:outline-none focus:ring-2 focus:ring-orange-500">
+                           {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <Tag className="w-4 h-4 text-gray-400 absolute right-3 top-3.5 pointer-events-none"/>
+                      </div>
+                   </div>
+                )}
+                <div>
+                   <label className="text-xs font-bold text-gray-500 mb-1 block">{formData.type === 'transfer' ? 'คนโอนเงิน' : 'คนจ่ายเงิน'}</label>
+                   <div className="flex gap-2">
+                      {users.map(u => (
+                         <button key={u.id} type="button" onClick={() => setFormData(prev => ({...prev, payer: u.name}))} className={`flex-1 py-3 rounded-xl border font-bold text-sm transition-all ${formData.payer === u.name ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-500'}`}>{u.name}</button>
+                      ))}
+                   </div>
+                </div>
+                <button type="submit" className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all">บันทึก</button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {isUserModalOpen && (
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                 <h2 className="text-lg font-bold mb-4">จัดการผู้ใช้งาน</h2>
+                 <form onSubmit={handleUserSubmit} className="space-y-4">
+                    <input type="text" value={userFormData.name} onChange={e => setUserFormData({...userFormData, name: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="ชื่อ" required/>
+                    <input type="email" value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="อีเมล"/>
+                    <button type="submit" className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold">บันทึก</button>
+                    <button type="button" onClick={() => setIsUserModalOpen(false)} className="w-full text-gray-400 text-xs mt-2">ยกเลิก</button>
+                 </form>
+              </div>
+           </div>
+        )}
+
+        {isCategoryModalOpen && (
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                 <h2 className="text-lg font-bold mb-4">เพิ่มหมวดหมู่</h2>
+                 <form onSubmit={handleCategorySubmit} className="space-y-4">
+                    <input type="text" value={categoryFormData} onChange={e => setCategoryFormData(e.target.value)} className="w-full border p-2 rounded-lg" placeholder="ชื่อหมวดหมู่" required/>
+                    <button type="submit" className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold">เพิ่ม</button>
+                    <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="w-full text-gray-400 text-xs mt-2">ยกเลิก</button>
+                 </form>
+              </div>
+           </div>
+        )}
+
+        {showBudgetConfig && (
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                 <div className="flex justify-between items-center mb-4"><h3 className="font-bold">ตั้งค่าวงเงิน</h3><button onClick={() => setShowBudgetConfig(false)}><X className="w-5 h-5"/></button></div>
+                 <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                    {budgetRules.map((rule) => (
+                       <div key={rule.id} className="border p-3 rounded-xl bg-gray-50 text-sm">
+                          <div className="flex justify-between mb-2">
+                             <select value={rule.category} onChange={e => setBudgetRules(budgetRules.map(r => r.id === rule.id ? {...r, category: e.target.value} : r))} className="font-bold bg-transparent">{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                             <input type="number" value={rule.limit} onChange={e => setBudgetRules(budgetRules.map(r => r.id === rule.id ? {...r, limit: parseFloat(e.target.value)} : r))} className="w-20 text-right border rounded px-1"/>
+                          </div>
+                          <div className="space-y-2">
+                             <div className="flex justify-between"><span>เจ้าของ:</span><select value={rule.owner} onChange={e => setBudgetRules(budgetRules.map(r => r.id === rule.id ? {...r, owner: e.target.value} : r))}>{users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+                             <div className="flex justify-between"><span>ส่วนเกิน:</span><select value={rule.excessPayer} onChange={e => setBudgetRules(budgetRules.map(r => r.id === rule.id ? {...r, excessPayer: e.target.value} : r))}>{users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+                          </div>
+                          <button onClick={() => setBudgetRules(prev => prev.filter(r => r.id !== rule.id))} className="text-red-500 text-xs mt-2 flex items-center gap-1"><MinusCircle className="w-3 h-3"/> ลบ</button>
+                       </div>
+                    ))}
+                    <button onClick={() => setBudgetRules([...budgetRules, { id: Date.now(), category: categories[0], limit: 1000, owner: users[0].name, excessPayer: users[1].name }])} className="w-full py-2 bg-gray-100 rounded-lg text-sm font-bold flex justify-center gap-2"><PlusCircle className="w-4 h-4"/> เพิ่มกฎ</button>
+                 </div>
+                 <button onClick={() => setShowBudgetConfig(false)} className="w-full mt-4 bg-orange-500 text-white font-bold py-2 rounded-xl">เสร็จสิ้น</button>
+              </div>
+           </div>
+        )}
+
+      </div>
+    </div>
+  );
+};
+
+export default App;
