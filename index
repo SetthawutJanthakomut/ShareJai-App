@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>ShareJai</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    window.lucideReact = {};
+    if (window.lucide && window.lucide.icons) {
+      Object.keys(window.lucide.icons).forEach(key => {
+        const iconData = window.lucide.icons[key];
+        window.lucideReact[key] = React.forwardRef(({ color = "currentColor", size = 24, strokeWidth = 2, className = "", ...props }, ref) => {
+          return React.createElement(
+            "svg",
+            {
+              ref,
+              ...props,
+              xmlns: "http://www.w3.org/2000/svg",
+              width: size,
+              height: size,
+              viewBox: "0 0 24 24",
+              fill: "none",
+              stroke: color,
+              strokeWidth: strokeWidth,
+              strokeLinecap: "round",
+              strokeLinejoin: "round",
+              className: `lucide lucide-${key.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')} ${className}`.trim()
+            },
+            ...iconData.map(([tag, attrs, children]) => React.createElement(tag, { ...attrs, key: Math.random() }, children))
+          );
+        });
+        window.lucideReact[key].displayName = key;
+      });
+      window.lucideReact = new Proxy(window.lucideReact, {
+        get: (target, prop) => target[prop] || (() => null)
+      });
+    }
+  </script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
+    body { font-family: 'Kanit', sans-serif; background-color: #f3f4f6; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .animate-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+    const { 
+      Plus, Trash2, Edit2, History, Wallet, Calendar, Users, 
+      Calculator, ArrowRight, Save, X, HandCoins, ArrowLeftRight, 
+      CheckCircle2, Settings, AlertTriangle, PlusCircle, MinusCircle, 
+      Sparkles, UserCircle, Eye, Mail, Tag, BarChart3, PieChart,
+      ChevronLeft, ChevronRight, Filter, Clock, Paperclip, FileText, 
+      Image: ImageIcon, Upload, Percent
+    } = window.lucideReact;
+
+    const App = () => {
+      const [isLoading, setIsLoading] = useState(true);
+      const [users, setUsers] = useState([]);
+      const [currentUser, setCurrentUser] = useState(null);
+      const [categories, setCategories] = useState([]);
+      const [expenses, setExpenses] = useState([]);
+      const [logs, setLogs] = useState([]);
+      
+      const [activeTab, setActiveTab] = useState('expenses'); 
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingId, setEditingId] = useState(null);
+      const [viewingAttachments, setViewingAttachments] = useState(null);
+      const [viewDate, setViewDate] = useState(new Date());
+      const [categoryViewMode, setCategoryViewMode] = useState('total');
+      const [filterMode, setFilterMode] = useState('last3');
+      const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+      const [showBudgetConfig, setShowBudgetConfig] = useState(false);
+      const [budgetRules, setBudgetRules] = useState([]);
+
+      const [formData, setFormData] = useState({
+        title: '', amount: '', payer: '', type: 'shared', split: 50, 
+        category: 'ทั่วไป', note: '', date: new Date().toISOString().split('T')[0], 
+        attachments: [], 
+        months: 10, // ✅ เพิ่ม: จำนวนเดือนผ่อนเริ่มต้น
+        relatedInstallments: [] // ✅ เพิ่ม: เก็บ ID รายการผ่อนที่จะจ่ายในรอบนี้
+      });
+      const [userFormData, setUserFormData] = useState({ id: null, name: '', email: '' });
+      const [categoryFormData, setCategoryFormData] = useState('');
+      const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+      const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+      
+      const historyTitles = useMemo(() => {
+         const titles = expenses.map(e => e.title).filter(t => t); 
+         return [...new Set(titles)]; 
+      }, [expenses]);
+      
+      const [isUnauthorized, setIsUnauthorized] = useState(false);
+      const [myEmail, setMyEmail] = useState('');
+      const [isInstallmentExpanded, setIsInstallmentExpanded] = useState(false); 
+      const [isBudgetExpanded, setIsBudgetExpanded] = useState(false);
+      const [isCategoryExpanded, setIsCategoryExpanded] = useState(false);
+
+      useEffect(() => {
+        if (typeof google !== 'undefined' && google.script) {
+          google.script.run.withSuccessHandler((data) => {
+            setUsers(data.users);
+            setCategories(data.categories);
+            setExpenses(data.expenses);
+            setBudgetRules(data.budgetRules);
+            setLogs(data.logs);
+
+const email = data.activeEmail;
+            setMyEmail(email);
+
+            if (email) {
+               // 🟢 แก้ไข: เปลี่ยนวิธีการเช็ค ให้รองรับหลายอีเมล (คั่นด้วย ,)
+               const foundUser = data.users.find(u => {
+                   if (!u.email) return false;
+                   // แยกอีเมลด้วย , แล้วตัดช่องว่างหน้าหลังออก
+                   const allowedEmails = u.email.split(',').map(e => e.trim().toLowerCase());
+                   // เช็คว่าอีเมลที่ล็อกอินเข้ามา (email) อยู่ในลิสต์นั้นไหม
+                   return allowedEmails.includes(email.toLowerCase());
+               });
+
+               if (foundUser) {
+                  setCurrentUser(foundUser);
+                  setFormData(prev => ({ ...prev, payer: foundUser.name }));
+               } else {
+                  setIsUnauthorized(true);
+               }
+            } else {
+               console.warn("ไม่พบอีเมลผู้ใช้ (อาจตั้งค่า Deploy เป็น Execute as Me)");
+               setCurrentUser(data.users[0]); 
+               setFormData(prev => ({ ...prev, payer: data.users[0]?.name }));
+            }
+            setIsLoading(false);
+          }).getInitialData();
+        } else {
+          setIsLoading(false);
+        }
+      }, []);
+
+      const syncTransaction = (data) => {
+         google.script.run
+            .withFailureHandler((err) => {
+               alert("❌ บันทึกรายการไม่สำเร็จ: " + err.message);
+            })
+            .saveTransaction(data);
+      };
+
+      const syncDelete = (id) => google.script.run.deleteTransaction(id);
+      
+      const syncLog = (log) => {
+         google.script.run
+            .withFailureHandler((err) => console.error("Log failed", err))
+            .saveLog(log);
+      };
+      
+      const syncUsers = (newUsers) => google.script.run.saveUsers(newUsers);
+      const syncCategory = (cat) => google.script.run.saveCategory(cat);
+      const syncDeleteCategory = (cat) => google.script.run.deleteCategory(cat);
+      const syncBudgetRules = (rules) => google.script.run.saveBudgetRules(rules);
+
+      const formatMoney = (amount) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount);
+      
+      const addLog = (action, title, amount, payer) => {
+        const detail = amount 
+          ? `"${title}" (${formatMoney(amount)}) โดย ${payer}`
+          : `"${title}"`;
+        const newLog = {
+          id: Date.now().toString(),
+          timestamp: new Date().toISOString(), 
+          action,
+          detail,
+          actor: currentUser ? currentUser.name : 'Unknown'
+        };
+        setLogs(prev => [newLog, ...prev]);
+        syncLog(newLog);
+      };
+
+      const detectCategory = (title) => {
+        const t = title.toLowerCase();
+        const sortedCats = [...categories].sort((a, b) => b.length - a.length);
+        const matchedCat = sortedCats.find(cat => t.includes(cat.toLowerCase()));
+        if (matchedCat) return matchedCat;
+        if (t.includes('ปั๊ม') || t.includes('gas') || t.includes('ptt') || t.includes('shell')) return 'น้ำมัน';
+        if (t.includes('ข้าว') || t.includes('อาหาร') || t.includes('mk') || t.includes('buffet') || t.includes('suki') || t.includes('shabu')) return 'อาหาร';
+        if (t.includes('ทางด่วน') || t.includes('bts') || t.includes('mrt') || t.includes('grab') || t.includes('taxi')) return 'เดินทาง';
+        if (t.includes('กาแฟ') || t.includes('cafe') || t.includes('coffee') || t.includes('starbucks') || t.includes('amazon') || t.includes('ชา')) return 'เครื่องดื่ม';
+        if (t.includes('หนัง') || t.includes('cinema') || t.includes('netflix') || t.includes('game')) return 'บันเทิง';
+        if (t.includes('ไฟ') || t.includes('ประปา') || t.includes('เน็ต') || t.includes('wifi')) return 'ค่าน้ำค่าไฟ';
+        if (t.includes('เช่า') || t.includes('ห้อง') || t.includes('condo') || t.includes('บ้าน') || t.includes('ส่วนกลาง')) return 'ค่าบ้าน';
+        if (t.includes('งวด') || t.includes('ประกัน') || t.includes('พรบ') || t.includes('ล้างรถ')) return 'ค่ารถ';
+        return null;
+      };
+
+      const resetForm = () => {
+        setFormData({
+          title: '', amount: '', payer: currentUser ? currentUser.name : '', 
+          type: 'shared', split: 50, category: categories[0] || 'ทั่วไป', 
+          note: '', date: new Date().toISOString().split('T')[0], 
+          attachments: [], months: 10, relatedInstallments: [] // ✅ Reset ค่าใหม่
+        });
+        setEditingId(null);
+        setSelectedCycles([]); // Reset การเลือกเคลียร์ยอดค้าง
+      };
+      const handleFileChange = async (e) => {
+        const files = Array.from(e.target.files);
+        const newAttachments = await Promise.all(files.map(file => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve({ name: file.name, type: file.type, data: reader.result });
+            reader.onerror = error => reject(error);
+          });
+        }));
+        setFormData(prev => ({ ...prev, attachments: [...prev.attachments, ...newAttachments] }));
+      };
+
+      const removeAttachment = (index) => {
+        setFormData(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
+      };
+
+      const getCycleRange = (dateInput) => {
+        const date = new Date(dateInput);
+        const day = date.getDate();
+        const month = date.getMonth();
+        const year = date.getFullYear();
+        let startDate, endDate, cycleName;
+        if (day >= 5) {
+          startDate = new Date(year, month, 5);
+          endDate = new Date(year, month + 1, 4, 23, 59, 59); 
+          const nextMonthDate = new Date(year, month + 1, 1);
+          cycleName = `รอบ 5 ${date.toLocaleString('th-TH', { month: 'short' })} - 4 ${nextMonthDate.toLocaleString('th-TH', { month: 'short' })}`;
+        } else {
+          startDate = new Date(year, month - 1, 5);
+          endDate = new Date(year, month, 4, 23, 59, 59); 
+          const prevMonthDate = new Date(year, month - 1, 1);
+          cycleName = `รอบ 5 ${prevMonthDate.toLocaleString('th-TH', { month: 'short' })} - 4 ${date.toLocaleString('th-TH', { month: 'short' })}`;
+        }
+        return { startDate, endDate, cycleName };
+      };
+
+      const currentCycleInfo = useMemo(() => getCycleRange(viewDate), [viewDate]);
+
+      const changeCycle = (months) => {
+        const newDate = new Date(viewDate);
+        newDate.setMonth(newDate.getMonth() + months);
+        setViewDate(newDate);
+      };
+
+const calculation = useMemo(() => {
+        if (!users.length) return { totalShared: 0, splitAmount: 0, stats: {}, prevStats: {}, budgetStatus: [], sortedCategories: [] };
+        
+        let totalShared = 0;
+        const stats = {}; 
+        const prevStats = {};
+        
+        // 🟢 ประกาศตัวแปร installmentPayment เริ่มต้นเป็น 0 ให้ครบทุกคน
+        users.forEach(u => {
+            stats[u.name] = { paid: 0, cost: 0, personal: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0 };
+            prevStats[u.name] = { paid: 0, cost: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0 };
+        });
+        
+        const categoryStats = {};
+        categories.forEach(c => {
+           categoryStats[c] = { total: 0, users: {} };
+           users.forEach(u => categoryStats[c].users[u.name] = 0);
+        });
+
+        const categoryTotals = {}; 
+        const categoryPaid = {};
+
+        const processExpense = (exp, targetStats, isCurrentCycle) => {
+            // ข้ามยอดต้นรายการผ่อน
+            if (exp.type === 'installment') return;
+
+            const val = parseFloat(exp.amount);
+            const payerName = exp.payer;
+            
+            // กรณีโอนเงิน
+            if (exp.type === 'transfer') {
+                // 🟢 ถ้าเป็น "จ่ายค่าผ่อน" (มี relatedId)
+                if (exp.relatedId) {
+                    // ให้บวกยอดเงินใส่ installmentPayment ของคนจ่าย
+                    if (targetStats[payerName]) {
+                        targetStats[payerName].installmentPayment = (targetStats[payerName].installmentPayment || 0) + val;
+                    }
+                    return; // แล้วจบเลย ไม่ต้องทำต่อ
+                }
+
+                const receiver = users.find(u => u.name !== payerName)?.name;
+                if (receiver) {
+                   targetStats[payerName].transferOut += val;
+                   targetStats[receiver].transferIn += val;
+                }
+                return;
+            }
+
+            // ... (Logic เดิม ส่วนอื่นๆ ไม่ต้องแก้) ...
+            targetStats[payerName].paid += val;
+
+            if (isCurrentCycle) {
+                if (categoryStats[exp.category]) categoryStats[exp.category].total += val;
+                categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + val;
+                if (!categoryPaid[exp.category]) categoryPaid[exp.category] = {};
+                if (!categoryPaid[exp.category][payerName]) categoryPaid[exp.category][payerName] = 0;
+                categoryPaid[exp.category][payerName] += val;
+            }
+
+            const rule = budgetRules.find(r => r.category === exp.category);
+            
+            if (!isCurrentCycle || !rule) {
+                 if (exp.type === 'shared') {
+                    if (isCurrentCycle) totalShared += val;
+                    const split = exp.split !== undefined ? exp.split : 50;
+                    const share0 = val * (split / 100);
+                    const share1 = val - share0;
+                    if(users[0]) {
+                        targetStats[users[0].name].cost += share0;
+                        if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[users[0].name] += share0;
+                    }
+                    if(users[1]) {
+                        targetStats[users[1].name].cost += share1;
+                        if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[users[1].name] += share1;
+                    }
+                 } else if (exp.type === 'personal') {
+                    targetStats[payerName].cost += val;
+                    targetStats[payerName].personal += val;
+                    if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[payerName] += val;
+                 } else if (exp.type === 'advance') {
+                    const others = users.filter(u => u.name !== payerName);
+                    others.forEach(u => { 
+                        const share = val / others.length;
+                        targetStats[u.name].cost += share; 
+                        if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[u.name] += share;
+                    });
+                 }
+            } else {
+                 if (exp.type === 'shared') totalShared += val;
+            }
+        };
+
+        expenses.forEach(exp => {
+            const d = new Date(exp.date);
+            if (d >= currentCycleInfo.startDate && d <= currentCycleInfo.endDate) {
+                processExpense(exp, stats, true);
+            } else if (d < currentCycleInfo.startDate) {
+                processExpense(exp, prevStats, false);
+            }
+        });
+
+        const budgetStatus = [];
+        budgetRules.forEach(rule => {
+            const catTotal = categoryTotals[rule.category] || 0;
+            let ownerCost = 0, excessCost = 0, isExceeded = false, excessAmount = 0;
+
+            if (catTotal <= rule.limit) {
+                ownerCost = catTotal;
+            } else {
+                isExceeded = true;
+                ownerCost = rule.limit;
+                excessCost = catTotal - rule.limit;
+                excessAmount = excessCost;
+            }
+
+            if (stats[rule.owner]) stats[rule.owner].cost += ownerCost;
+            if (stats[rule.excessPayer]) stats[rule.excessPayer].cost += excessCost;
+
+            if (categoryStats[rule.category]) {
+                users.forEach(u => categoryStats[rule.category].users[u.name] = 0);
+                if(users.find(u => u.name === rule.owner)) categoryStats[rule.category].users[rule.owner] += ownerCost;
+                if(users.find(u => u.name === rule.excessPayer)) categoryStats[rule.category].users[rule.excessPayer] += excessCost;
+            }
+
+            const excessPayerPaidAmount = categoryPaid[rule.category]?.[rule.excessPayer] || 0;
+            const excessPayerNet = excessAmount - excessPayerPaidAmount; 
+            
+            budgetStatus.push({
+                ...rule, total: catTotal, excess: excessAmount, isExceeded,
+                excessPayerPaid: excessPayerPaidAmount, excessPayerNet: excessPayerNet
+            });
+        });
+
+        const calcNet = (s) => (s.paid + s.transferOut) - (s.cost + s.transferIn);
+        
+        users.forEach(u => {
+           stats[u.name].netBalance = calcNet(stats[u.name]);
+           prevStats[u.name].netBalance = calcNet(prevStats[u.name]);
+           stats[u.name].netBalanceNoTransfer = stats[u.name].paid - stats[u.name].cost;
+        });
+
+        const globalStats = {};
+        const adjustedPrevStats = {};
+
+        users.forEach(u => {
+            globalStats[u.name] = {
+                netBalance: stats[u.name].netBalance + prevStats[u.name].netBalance
+            };
+
+            const currentTransferNet = stats[u.name].transferOut - stats[u.name].transferIn;
+            adjustedPrevStats[u.name] = {
+                netBalance: prevStats[u.name].netBalance + currentTransferNet
+            };
+        });
+
+        const sortedCategories = Object.entries(categoryStats)
+           .filter(([_, data]) => data.total > 0)
+           .sort((a, b) => b[1].total - a[1].total);
+        
+        return { totalShared, splitAmount: totalShared / users.length, stats, prevStats, globalStats, adjustedPrevStats, budgetStatus, sortedCategories };
+      }, [expenses, users, budgetRules, categories, currentCycleInfo]);
+
+// --- แก้ไข Logic: คำนวณหนี้ค้าง (เอาส่วนที่หักลบ Surplus ออก) ---
+const debtsByCycle = useMemo(() => {
+    if (!formData.payer) return [];
+    
+    // 1. หาชื่อ "รอบบัญชีปัจจุบัน" เพื่อไม่ให้แสดงในลิสต์ (เหมือนเดิม)
+    const today = new Date();
+    const { cycleName: realCurrentCycle } = getCycleRange(today);
+
+    // 2. คำนวณยอด Net ของทุกรอบ (เหมือนเดิม)
+    const cycleGroups = {};
+    expenses.forEach(exp => {
+       const { cycleName } = getCycleRange(exp.date);
+       if (!cycleGroups[cycleName]) cycleGroups[cycleName] = [];
+       cycleGroups[cycleName].push(exp);
+    });
+
+    let allCycles = [];
+    Object.entries(cycleGroups).forEach(([cycleName, cycleExps]) => {
+        // ... (ส่วนคำนวณ stats, cost, paid ข้างในนี้เหมือนเดิมทุกอย่าง ไม่ต้องแก้) ...
+        const stats = { cost: 0, paid: 0, transferIn: 0, transferOut: 0 };
+        const payer = formData.payer; 
+        const receiver = users.find(u => u.name !== payer)?.name;
+        const catTotals = {};
+
+        cycleExps.forEach(exp => {
+            const val = parseFloat(exp.amount);
+            // ... (Copy ไส้ในเดิมมาใส่ได้เลยครับ หรือปล่อยไว้เหมือนเดิม) ...
+            if (exp.type === 'transfer') {
+                if (exp.payer === payer) stats.transferOut += val;
+                if (exp.payer === receiver) stats.transferIn += val;
+            } else {
+                if (exp.payer === payer) stats.paid += val;
+                catTotals[exp.category] = (catTotals[exp.category] || 0) + val;
+                const rule = budgetRules.find(r => r.category === exp.category);
+                if (!rule) {
+                    if (exp.type === 'shared') {
+                            const split = exp.split !== undefined ? exp.split : 50;
+                            if (users[0].name === payer) stats.cost += val * (split/100);
+                            else stats.cost += val * ((100-split)/100);
+                    } else if (exp.type === 'personal' && exp.payer === payer) stats.cost += val;
+                        else if (exp.type === 'advance' && exp.payer !== payer) stats.cost += val / (users.length-1);
+                }
+            }
+        });
+        // ... (Budget Rule Logic เดิม) ...
+        budgetRules.forEach(rule => {
+            if(catTotals[rule.category]) {
+                const total = catTotals[rule.category];
+                let ownerCost = total > rule.limit ? rule.limit : total;
+                let excessCost = total > rule.limit ? total - rule.limit : 0;
+                if(rule.owner === payer) stats.cost += ownerCost;
+                if(rule.excessPayer === payer) stats.cost += excessCost;
+            }
+        });
+
+        const net = (stats.paid + stats.transferOut) - (stats.cost + stats.transferIn);
+        allCycles.push({ cycle: cycleName, net: net });
+    });
+
+    // 3. 🟢 แก้ไขใหม่: กรองเอาเฉพาะที่เป็นหนี้เลย (ไม่ต้องมี Surplus มาตัด)
+    const finalDebts = [];
+    
+    // กรองเอารอบที่เป็นหนี้ (net < 0) และไม่ใช่รอบปัจจุบัน
+    const pastDebtCycles = allCycles.filter(c => 
+        c.net < -1 && // เป็นหนี้ (ติดลบมากกว่า 1 บาท กัน Error ทศนิยม)
+        c.cycle !== realCurrentCycle // ไม่ใช่รอบปัจจุบัน
+    );
+
+    pastDebtCycles.forEach(c => {
+        // ใส่เข้าไปตรงๆ เลย ไม่ต้องไปหัก surplus
+        finalDebts.push({ cycle: c.cycle, amount: c.net }); 
+    });
+
+    return finalDebts;
+}, [expenses, users, budgetRules, formData.payer]);
+
+// --- ส่วนที่ขาดหายไป: คำนวณสถานะการผ่อน ---
+      const installmentProgress = useMemo(() => {
+         const progress = {}; 
+         expenses.forEach(exp => {
+            if (exp.type === 'transfer' && exp.relatedId) {
+               progress[exp.relatedId] = (progress[exp.relatedId] || 0) + 1;
+            }
+         });
+         return progress;
+      }, [expenses]);
+      
+      const activeInstallments = useMemo(() => {
+         if (!formData.payer) return [];
+         return expenses.filter(exp => {
+            if (exp.type !== 'installment') return false;
+            if (exp.payer === formData.payer) return false; 
+            if (new Date(exp.date) > new Date()) return false;
+            const paidCount = installmentProgress[exp.id] || 0;
+            return paidCount < (exp.months || 1);
+         });
+      }, [expenses, formData.payer, installmentProgress]);
+      // ------------------------------------------
+
+// ... (โค้ด installmentProgress เดิม) ...
+
+      // 🟢 เตรียมข้อมูลสำหรับโชว์การ์ดสรุปรายการผ่อน
+      const installmentSummary = useMemo(() => {
+         // ดึงรายการที่เป็นประเภทผ่อนทั้งหมด
+         const installments = expenses.filter(e => e.type === 'installment');
+         
+         return installments.map(inst => {
+            const paidCount = installmentProgress[inst.id] || 0; // จ่ายไปแล้วกี่งวด
+            const totalMonths = inst.months || 1;
+            const amountPerMonth = inst.amount / totalMonths;
+            const paidAmount = amountPerMonth * paidCount;
+            const remainingAmount = inst.amount - paidAmount;
+            const progressPercent = (paidCount / totalMonths) * 100;
+            
+            // เช็คว่าผ่อนจบหรือยัง
+            const isCompleted = paidCount >= totalMonths;
+
+            return { 
+               ...inst, 
+               paidCount, 
+               totalMonths, 
+               remainingAmount, 
+               progressPercent, 
+               isCompleted 
+            };
+         }).filter(item => !item.isCompleted); // เอาเฉพาะที่ยังผ่อนไม่หมดมาโชว์
+      }, [expenses, installmentProgress]);
+
+
+      const [selectedCycles, setSelectedCycles] = useState([]);
+
+      const toggleCycleSelection = (cycle, amount) => {
+          let newSelection;
+          if (selectedCycles.find(c => c.cycle === cycle)) {
+              newSelection = selectedCycles.filter(c => c.cycle !== cycle);
+          } else {
+              newSelection = [...selectedCycles, { cycle, amount }];
+          }
+          setSelectedCycles(newSelection);
+          
+          const netTotal = newSelection.reduce((sum, item) => sum + item.amount, 0);
+          const amountToPay = netTotal < 0 ? Math.abs(netTotal) : 0;
+
+          setFormData(prev => ({ 
+              ...prev, 
+              amount: amountToPay > 0 ? amountToPay : '',
+              note: newSelection.length > 0 ? `เคลียร์ยอด: ${newSelection.map(c => c.cycle).join(', ')}` : ''
+          }));
+      };
+
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        if (name === 'title') {
+           const detected = detectCategory(value);
+           if (detected) setFormData(prev => ({ ...prev, [name]: value, category: detected }));
+           else setFormData(prev => ({ ...prev, [name]: value }));
+        } else setFormData(prev => ({ ...prev, [name]: value }));
+      };
+
+const handleSubmit = (e) => {
+        e.preventDefault();
+        // Validation: ถ้าไม่มีชื่อรายการและไม่ใช่การโอนคืน ให้หยุด
+        if (!formData.title && formData.type !== 'transfer') return;
+        
+        let finalTitle = formData.title;
+        // ถ้าเป็นโอนคืนแล้วไม่ตั้งชื่อ ให้ตั้งชื่ออัตโนมัติ
+        if (formData.type === 'transfer' && !finalTitle) finalTitle = 'โอนคืน / จ่ายคืน';
+        
+        const amt = parseFloat(formData.amount);
+        const now = new Date();
+        const [year, month, day] = formData.date.split('-').map(Number);
+        const dateWithTime = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+        const dateToSave = dateWithTime.toISOString();
+        
+        // 🟢 ส่วนใหม่: กรณีโอนคืนพร้อมจ่ายรายการผ่อน
+        if (formData.type === 'transfer' && formData.relatedInstallments && formData.relatedInstallments.length > 0) {
+            formData.relatedInstallments.forEach(inst => {
+               const installItem = expenses.find(x => x.id === inst.id);
+               // คำนวณยอดต่อเดือน
+               const payAmount = installItem.amount / installItem.months;
+               // นับงวด
+               const currentTerm = (installmentProgress[inst.id] || 0) + 1;
+               
+               const repayTransaction = {
+                  id: Date.now().toString() + Math.random().toString().slice(2,5), // สุ่ม ID กันซ้ำ
+                  title: `จ่ายค่าผ่อน: ${installItem.title} (งวด ${currentTerm}/${installItem.months})`,
+                  amount: payAmount,
+                  payer: formData.payer,
+                  type: 'transfer',
+                  date: dateToSave,
+                  category: installItem.category,
+                  relatedId: installItem.id, // ผูก ID รายการผ่อน
+                  note: formData.note
+               };
+               syncTransaction(repayTransaction);
+               setExpenses(prev => [repayTransaction, ...prev]);
+            });
+            
+            // คำนวณยอดคงเหลือ (ถ้ามีจ่ายเพิ่มนอกเหนือจากค่าผ่อน)
+            const totalInstallmentPay = formData.relatedInstallments.reduce((sum, item) => sum + (item.amount/item.months), 0);
+            const remainingPay = amt - totalInstallmentPay;
+            
+            // ถ้ามีเศษเหลือ ให้บันทึกเป็น Transfer ปกติอีกก้อน
+            if (remainingPay > 1) { 
+               const normalTransfer = {
+                  ...formData, id: Date.now().toString(), amount: remainingPay, title: 'โอนคืน (ยอดคงเหลือ)', relatedInstallments: []
+               };
+               syncTransaction(normalTransfer);
+               setExpenses(prev => [normalTransfer, ...prev]);
+            }
+            
+            addLog('โอนคืน', `รวมค่าผ่อน ${formData.relatedInstallments.length} รายการ`, amt, formData.payer);
+
+        } else {
+            // 🟢 ส่วนเดิม + ปรับปรุง: บันทึกรายการปกติ / สร้างรายการผ่อนใหม่
+            const newExpense = { 
+                ...formData, 
+                title: finalTitle, 
+                id: editingId || Date.now().toString(), 
+                amount: amt, 
+                date: dateToSave,
+                // บันทึกจำนวนเดือน (ถ้าไม่ใช่ผ่อน ให้เป็น 1)
+                months: formData.type === 'installment' ? parseInt(formData.months) : 1 
+            };
+
+            if (editingId) {
+              setExpenses(prev => prev.map(exp => exp.id === editingId ? newExpense : exp));
+              addLog('แก้ไข', finalTitle, amt, formData.payer);
+            } else {
+              setExpenses(prev => [newExpense, ...prev]);
+              addLog('เพิ่ม', finalTitle, amt, formData.payer);
+            }
+            syncTransaction(newExpense); 
+        }
+
+        setIsModalOpen(false);
+        resetForm();
+      };
+
+      const handleDelete = (id, title, amount, e) => {
+        if (e) e.stopPropagation();
+        if(!confirm('ลบรายการนี้?')) return;
+        setExpenses(prev => prev.filter(exp => exp.id !== id));
+        addLog('ลบ', title, amount, currentUser.name);
+        syncDelete(id); 
+      };
+
+      const handleUserSubmit = (e) => {
+        e.preventDefault();
+        if (userFormData.id) {
+            const oldName = users.find(u => u.id === userFormData.id)?.name;
+            const newName = userFormData.name;
+            const updatedUsers = users.map(u => u.id === userFormData.id ? userFormData : u);
+            setUsers(updatedUsers);
+            
+            if (oldName !== newName) {
+                setExpenses(prev => prev.map(exp => exp.payer === oldName ? { ...exp, payer: newName } : exp));
+                setBudgetRules(prev => prev.map(rule => ({ ...rule, owner: rule.owner === oldName ? newName : rule.owner, excessPayer: rule.excessPayer === oldName ? newName : rule.excessPayer })));
+                if (currentUser.name === oldName) setCurrentUser({ ...currentUser, name: newName });
+                syncUsers(updatedUsers);
+            } else {
+                syncUsers(updatedUsers);
+            }
+        }
+        setIsUserModalOpen(false);
+      };
+
+      const handleCategorySubmit = (e) => {
+          e.preventDefault();
+          const newCat = categoryFormData.trim();
+          if (newCat && !categories.includes(newCat)) {
+              setCategories(prev => [...prev, newCat]);
+              syncCategory(newCat);
+              setCategoryFormData('');
+              setIsCategoryModalOpen(false);
+          }
+      };
+
+      const handleDeleteCategory = (cat) => {
+          if (confirm(`ลบหมวดหมู่ ${cat}?`)) {
+              setCategories(prev => prev.filter(c => c !== cat));
+              syncDeleteCategory(cat);
+          }
+      };
+
+      const updateRules = (newRules) => {
+          setBudgetRules(newRules);
+          syncBudgetRules(newRules);
+      };
+
+      const FilterBar = () => (
+         <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-2 pt-1">
+            <span className="text-xs font-bold text-gray-400 whitespace-nowrap flex items-center gap-1">
+               <Filter className="w-3 h-3"/> กรอง:
+            </span>
+            <button onClick={() => setFilterMode('last3')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterMode === 'last3' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
+               <Clock className="w-3 h-3"/> 3 วันล่าสุด
+            </button>
+            <button onClick={() => setFilterMode('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${filterMode === 'all' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
+               ทั้งหมด ({activeTab === 'expenses' ? 'ในรอบ' : 'ตลอด'})
+            </button>
+            <div className="relative">
+               <input type="date" value={filterDate} onChange={(e) => { setFilterDate(e.target.value); setFilterMode('date'); }} className={`pl-8 pr-2 py-1.5 rounded-lg text-xs font-bold border outline-none transition-colors ${filterMode === 'date' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}/>
+               <Calendar className={`w-3 h-3 absolute left-2.5 top-2 ${filterMode === 'date' ? 'text-orange-500' : 'text-gray-400'}`} />
+            </div>
+         </div>
+      );
+
+      const expensesInCycleDisplay = useMemo(() => {
+        const { startDate, endDate } = currentCycleInfo;
+        return expenses.filter(exp => {
+          const d = new Date(exp.date);
+          return d >= startDate && d <= endDate;
+        });
+      }, [expenses, currentCycleInfo]);
+
+      const displayedExpenses = useMemo(() => {
+        let data = [...expensesInCycleDisplay];
+        data.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        if (filterMode === 'last3') {
+           const today = new Date();
+           const threeDaysAgo = new Date();
+           threeDaysAgo.setDate(today.getDate() - 3);
+           threeDaysAgo.setHours(0, 0, 0, 0);
+           data = data.filter(exp => new Date(exp.date) >= threeDaysAgo);
+        } else if (filterMode === 'date') {
+           const target = new Date(filterDate).toDateString();
+           data = data.filter(exp => new Date(exp.date).toDateString() === target);
+        }
+        return data;
+      }, [expensesInCycleDisplay, filterMode, filterDate]);
+
+      const displayedLogs = useMemo(() => {
+        let data = [...logs];
+        data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        if (filterMode === 'last3') {
+           const threeDaysAgo = new Date();
+           threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+           threeDaysAgo.setHours(0, 0, 0, 0);
+           data = data.filter(l => new Date(l.timestamp) >= threeDaysAgo);
+        } else if (filterMode === 'date') {
+           const target = new Date(filterDate).toDateString();
+           data = data.filter(l => new Date(l.timestamp).toDateString() === target);
+        }
+        return data;
+      }, [logs, filterMode, filterDate]);
+
+      if (isLoading) {
+          return <div className="h-screen flex items-center justify-center text-orange-500 font-bold animate-pulse">กำลังโหลดข้อมูล...</div>;
+      }
+
+      if (isUnauthorized) {
+         return (
+            <div className="h-screen flex flex-col items-center justify-center bg-gray-100 p-4 font-kanit">
+               <div className="bg-white p-8 rounded-3xl shadow-xl text-center max-w-sm w-full">
+                  <div className="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <X className="w-10 h-10" />
+                  </div>
+                  <h1 className="text-xl font-bold text-gray-800 mb-2">ไม่ได้รับอนุญาต</h1>
+                  <p className="text-gray-500 text-sm mb-6">
+                     อีเมลของคุณ <br/>
+                     <span className="font-bold text-gray-800">{myEmail}</span><br/>
+                     ไม่อยู่ในระบบ กรุณาติดต่อ Admin
+                  </p>
+                  <button onClick={() => window.location.reload()} className="w-full bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 transition-colors">ลองใหม่</button>
+               </div>
+            </div>
+         );
+      }
+
+      return (
+        <div className="min-h-screen bg-gray-100 font-kanit pb-24">
+          <div className="bg-gradient-to-r from-[#FF8C42] to-[#F6C700] text-white px-6 pt-8 pb-24 rounded-b-[2rem] shadow-lg relative z-0">
+            <div className="flex justify-between items-start max-w-2xl mx-auto mb-2">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <Wallet className="w-8 h-8" /> ShareJai
+                </h1>
+                <p className="text-orange-50 text-sm mt-1 opacity-90">แชร์ค่าใช้จ่าย ง่ายนิดเดียว</p>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                 <div className="flex items-center gap-2 bg-white/20 p-1 pl-3 pr-1 rounded-full backdrop-blur-sm">
+                    <span className="text-[10px] font-bold text-white flex items-center gap-1"><Eye className="w-3 h-3"/> มุมมอง:</span>
+                    <select 
+                       disabled={currentUser?.role !== 'Admin'} 
+                       value={currentUser?.id || ''}
+                       onChange={(e) => {
+                           const selected = users.find(u => u.id === parseInt(e.target.value));
+                           setCurrentUser(selected);
+                           setFormData(prev => ({ ...prev, payer: selected.name }));
+                       }}
+                       className={`bg-white text-orange-600 text-xs font-bold py-1 px-2 rounded-full outline-none ${currentUser?.role === 'Admin' ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'}`}
+                    >
+                       {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                 </div>
+                 
+                 <div className="flex items-center bg-white/10 rounded-lg backdrop-blur-sm">
+                    <button onClick={() => changeCycle(-1)} className="p-2 hover:bg-white/10 rounded-l-lg transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+                    <div className="px-2 text-center">
+                        <span className="text-[10px] font-medium block text-orange-50">รอบบัญชี (ตัดทุกวันที่ 5)</span>
+                       <span className="text-xs font-bold block min-w-[120px]">{currentCycleInfo.cycleName}</span>
+                    </div>
+                    <button onClick={() => changeCycle(1)} className="p-2 hover:bg-white/10 rounded-r-lg transition-colors"><ChevronRight className="w-4 h-4"/></button>
+                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="max-w-2xl mx-auto px-4 -mt-20 relative z-10">
+            
+            <div className="bg-white rounded-3xl p-6 shadow-xl mb-6">
+              <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+                 <h2 className="text-gray-800 font-bold text-lg flex items-center gap-2">
+                   <Calculator className="w-5 h-5 text-orange-500" /> สรุปยอดสุทธิ
+                 </h2>
+                 <button onClick={() => setShowBudgetConfig(!showBudgetConfig)} className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-orange-100 font-medium">
+                   <Settings className="w-3 h-3" /> ตั้งงบ
+                 </button>
+              </div>
+
+{/* Previous Cycle Balance (แก้ไข: ใช้ adjustedPrevStats เพื่อให้ยอดลดลงเมื่อโอนคืน) */}
+              {users.length >= 2 && Math.abs(calculation.adjustedPrevStats[users[0].name]?.netBalance) > 1 && (
+                 <div className="bg-gray-100 border border-gray-200 rounded-2xl p-3 mb-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                       <div className="bg-gray-200 p-2 rounded-full text-gray-500">
+                          <History className="w-4 h-4" />
+                       </div>
+                       <div>
+                          <p className="text-[10px] font-bold text-gray-500">ยอดค้างรอบก่อน (คงเหลือ)</p>
+                          <p className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                             {calculation.adjustedPrevStats[users[1].name].netBalance < 0 ? (
+                                <>{users[1].name} <ArrowRight className="w-3 h-3"/> {users[0].name}</>
+                             ) : (
+                                <>{users[0].name} <ArrowRight className="w-3 h-3"/> {users[1].name}</>
+                             )}
+                          </p>
+                       </div>
+                    </div>
+                    <span className="text-lg font-bold text-gray-800">
+                       {formatMoney(Math.abs(calculation.adjustedPrevStats[users[0].name].netBalance))}
+                    </span>
+                 </div>
+              )}
+
+{/* === ส่วนแสดงงบประมาณ (Collapsible Budget) === */}
+              {calculation.budgetStatus.length > 0 && (
+                 <div className="mb-4 border border-gray-100 rounded-2xl overflow-hidden transition-all duration-300">
+                    {/* Header: กดเพื่อย่อ/ขยาย */}
+                    <div 
+                       onClick={() => setIsBudgetExpanded(!isBudgetExpanded)}
+                       className="p-3 flex justify-between items-center cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+                    >
+                       <span className="text-xs font-bold text-gray-700 flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-orange-500" />
+                          ติดตามงบประมาณ
+                          {/* ถ้าปิดอยู่และมีงบเกิน ให้โชว์จุดแดงแจ้งเตือน */}
+                          {!isBudgetExpanded && calculation.budgetStatus.some(b => b.isExceeded) && (
+                             <span className="flex h-2 w-2 relative">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                             </span>
+                          )}
+                       </span>
+                       <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400 font-normal">{calculation.budgetStatus.length} รายการ</span>
+                          {isBudgetExpanded ? <ChevronLeft className="w-4 h-4 text-gray-400 -rotate-90 transition-transform" /> : <ChevronLeft className="w-4 h-4 text-gray-400 rotate-180 transition-transform" />}
+                       </div>
+                    </div>
+
+                    {/* Content: รายการงบประมาณ */}
+                    {isBudgetExpanded && (
+                       <div className="p-3 bg-white space-y-3 animate-in slide-in-from-top-2">
+                           {calculation.budgetStatus.map((status) => (
+                               <div key={status.id} className={`p-3 rounded-xl border ${status.isExceeded ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+                                  <div className="flex justify-between items-center mb-2">
+                                     <span className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                                        <AlertTriangle className={`w-3 h-3 ${status.isExceeded ? 'text-red-500' : 'text-green-500'}`} />
+                                        {status.category} ({formatMoney(status.limit)})
+                                     </span>
+                                     <span className={`text-xs font-bold ${status.isExceeded ? 'text-red-600' : 'text-green-600'}`}>
+                                        ใช้ไป {formatMoney(status.total)}
+                                     </span>
+                                  </div>
+                                  <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
+                                     <div className={`h-1.5 rounded-full ${status.isExceeded ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${Math.min((status.total / (status.limit || 1)) * 100, 100)}%` }}></div>
+                                  </div>
+                                  {status.isExceeded && (
+                                     <div className="mt-2 text-[10px] bg-white/50 text-red-700 p-1.5 rounded-lg text-center font-bold border border-red-200/50">
+                                        {status.excessPayer} จ่ายไป {formatMoney(status.excessPayerPaid)} 
+                                        {status.excessPayerNet > 0 
+                                           ? ` → จ่ายเพิ่ม ${formatMoney(status.excessPayerNet)}`
+                                           : ` → จ่ายเกิน ${formatMoney(Math.abs(status.excessPayerNet))}`
+                                        }
+                                     </div>
+                                  )}
+                               </div>
+                           ))}
+                       </div>
+                    )}
+                 </div>
+              )}
+              <div className="mb-6 mt-4">
+                  <div className="bg-gradient-to-r from-orange-50 to-orange-100/50 p-4 rounded-2xl text-center border border-orange-100 shadow-sm relative overflow-hidden">
+                     <div className="absolute top-0 right-0 -mt-2 -mr-2 w-16 h-16 bg-orange-200 rounded-full opacity-20 blur-xl"></div>
+                     <div className="absolute bottom-0 left-0 -mb-2 -ml-2 w-16 h-16 bg-yellow-200 rounded-full opacity-20 blur-xl"></div>
+                     
+                     <p className="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider relative z-10">ยอดใช้จ่ายส่วนกลางรวม</p>
+                     <p className="text-3xl font-extrabold text-orange-600 tracking-tight relative z-10">
+                         {formatMoney(calculation.totalShared)}
+                     </p>
+                  </div>
+               </div>
+
+{/* Settlement Box (กล่องดำ) */}
+{users.length >= 2 && calculation.stats[users[0].name] && calculation.stats[users[1].name] && (
+<div className="bg-gray-800 text-white rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between shadow-lg gap-3 sm:gap-0">
+    <div className="flex flex-col items-center sm:items-start w-full sm:w-auto">
+        <span className="text-xs text-gray-400 mb-1">ยอดสุทธิ (เฉพาะค่าใช้จ่ายรอบนี้)</span>
+        
+        {/* ✅ แก้จุดที่ 1: ใช้ .netBalanceNoTransfer ในการเช็คเงื่อนไข */}
+        {Math.abs(calculation.stats[users[0].name].netBalanceNoTransfer) < 1 ? (
+            <span className="font-bold text-green-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-4 h-4"/> เคลียร์ครบแล้ว</span>
+        ) : (
+            <div className="mt-1 text-base sm:text-lg font-bold text-yellow-400 flex flex-wrap justify-center items-center gap-2">
+                {/* ✅ แก้จุดที่ 2: ใช้ .netBalanceNoTransfer ในการเช็คว่าใครติดใคร */}
+                {calculation.stats[users[1].name].netBalanceNoTransfer < 0 ? (
+                    <>{users[1].name} <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5"/> โอนคืน {users[0].name}</>
+                ) : (
+                    <>{users[0].name} <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5"/> โอนคืน {users[1].name}</>
+                )}
+            </div>
+        )}
+    </div>
+    <div className="text-center sm:text-right w-full sm:w-auto border-t sm:border-t-0 border-gray-700 pt-3 sm:pt-0 mt-2 sm:mt-0">
+        <span className="text-2xl sm:text-3xl font-bold tracking-tighter block">
+            {/* ✅ แก้จุดที่ 3: ใช้ .netBalanceNoTransfer แสดงตัวเลข */}
+            {Math.abs(calculation.stats[users[0].name].netBalanceNoTransfer) < 1 ? '฿0' : formatMoney(Math.abs(calculation.stats[users[0].name].netBalanceNoTransfer))}
+        </span>
+    </div>
+</div>
+)}
+
+{/* === ส่วนแสดงรายการผ่อนชำระ (Installment Tracking) แบบย่อ/ขยายได้ === */}
+            {installmentSummary.length > 0 && (
+               <div className="mt-6 bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm transition-all duration-300">
+                  {/* ส่วนหัวการ์ด (Header) กดเพื่อย่อ/ขยายได้ */}
+                  <div 
+                     onClick={() => setIsInstallmentExpanded(!isInstallmentExpanded)}
+                     className="p-5 flex justify-between items-center cursor-pointer bg-white hover:bg-gray-50 transition-colors"
+                  >
+                     <h3 className="text-gray-800 font-bold text-sm flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-blue-500" /> 
+                        รายการผ่อนชำระคงค้าง 
+                        <span className="bg-blue-100 text-blue-600 text-[10px] px-2 py-0.5 rounded-full">
+                           {installmentSummary.length} รายการ
+                        </span>
+                     </h3>
+                     {/* ปุ่มลูกศรหมุนตามสถานะ */}
+                     <button className="text-gray-400">
+                        {isInstallmentExpanded ? <ChevronLeft className="w-5 h-5 -rotate-90 transition-transform" /> : <ChevronLeft className="w-5 h-5 rotate-180 transition-transform" />}
+                     </button>
+                  </div>
+                  
+                  {/* ส่วนเนื้อหา (Content) แสดงเมื่อเปิดอยู่ */}
+                  {isInstallmentExpanded && (
+                     <div className="px-5 pb-5 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                        {installmentSummary.map(inst => (
+                           <div key={inst.id} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                              <div className="flex justify-between items-start mb-2">
+                                 <div>
+                                    <p className="font-bold text-gray-700 text-sm">{inst.title}</p>
+                                    <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                                       <UserCircle className="w-3 h-3"/> คนรูด: {inst.payer}
+                                    </p>
+                                 </div>
+                                 <div className="text-right">
+                                    <p className="font-bold text-blue-600 text-sm">{formatMoney(inst.remainingAmount)}</p>
+                                    <p className="text-[10px] text-gray-400">ยอดเหลือ</p>
+                                 </div>
+                              </div>
+
+                              {/* Progress Bar */}
+                              <div className="relative pt-1">
+                                 <div className="flex mb-1 items-center justify-between">
+                                    <div className="text-[10px] font-semibold text-blue-600 inline-block px-2 py-0.5 rounded-full bg-blue-100">
+                                       งวดที่ {inst.paidCount} / {inst.totalMonths}
+                                    </div>
+                                    <div className="text-right">
+                                       <span className="text-[10px] font-semibold inline-block text-blue-600">
+                                          {Math.round(inst.progressPercent)}%
+                                       </span>
+                                    </div>
+                                 </div>
+                                 <div className="overflow-hidden h-2 mb-1 text-xs flex rounded bg-blue-200">
+                                    <div style={{ width: `${inst.progressPercent}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500 transition-all duration-500"></div>
+                                 </div>
+                              </div>
+                              
+                              <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                                 <span>ยอดเต็ม: {formatMoney(inst.amount)}</span>
+                                 <span>ผ่อนเดือนละ: {formatMoney(inst.amount / inst.totalMonths)}</span>
+                              </div>
+                           </div>
+                        ))}
+                     </div>
+                  )}
+               </div>
+            )}
+
+              <div className="mt-8 pt-4 border-t border-gray-100">
+                 <h3 className="text-sm font-bold text-gray-600 mb-4">สรุปค่าใช้จ่ายจริง (ตามงบที่ตั้ง)</h3>
+<div className="grid grid-cols-2 gap-4">
+                    {users.map((u, idx) => {
+                       const s = calculation.stats[u.name] || { paid:0, cost:0, personal:0, netBalance:0, installmentPayment: 0 };
+                       const isPositive = s.netBalance > 0;
+                       
+                       // คำนวณยอดที่จะโชว์ (บวกยอดผ่อน) + ใส่กันพลาด (|| 0)
+                       const displayCost = s.cost + (s.installmentPayment || 0);
+                       const displayPaid = s.paid + (s.installmentPayment || 0);
+
+                       return (
+                           <div key={u.id} className={`rounded-xl p-3 border relative overflow-hidden ${currentUser?.name === u.name ? 'bg-yellow-50/50 border-yellow-200' : 'bg-white border-gray-100'}`}>
+                              {Math.abs(s.netBalance) > 1 && (
+                                 <div className={`absolute top-0 right-0 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}>
+                                     {isPositive ? `รับ ${formatMoney(s.netBalance)}` : `จ่าย ${formatMoney(Math.abs(s.netBalance))}`}
+                                 </div>
+                              )}
+                              <div className="flex items-center gap-2 mb-3 mt-1">
+                                 <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
+                                 <span className="font-bold text-gray-700 text-sm">{u.name}</span>
+                              </div>
+                              <div className="space-y-1.5 text-xs text-gray-500">
+                                 <div className="flex justify-between"><span>ส่วนตัว/คนอื่นออกให้</span><span>{formatMoney(s.personal)}</span></div>
+                                 <div className="flex justify-between"><span>ส่วนแบ่งค่าใช้จ่าย</span><span>{formatMoney(s.cost - s.personal)}</span></div>
+                                 
+                                 {/* แสดงบรรทัดจ่ายผ่อน (ถ้ามี) */}
+                       {(s.installmentPayment > 0) && (
+                                    <div className="flex justify-between text-blue-600 font-bold bg-blue-50 px-1 rounded">
+                                       <span>จ่ายค่าผ่อนสินค้า</span>
+                                       <span>{formatMoney(s.installmentPayment)}</span>
+                                    </div>
+                                 )}
+                                 <div className={`border-t pt-1 mt-1 flex justify-between font-bold ${idx === 0 ? 'border-orange-100 text-orange-700' : 'border-blue-100 text-blue-700'}`}>
+                                    <span>รวมค่าใช้จ่าย</span><span>{formatMoney(displayCost)}</span>
+                                 </div>
+                                 <div className="flex justify-between text-gray-400"><span>จ่ายไปแล้ว</span><span>{formatMoney(displayPaid)}</span></div>
+                               </div>
+                           </div>
+                       );
+                    })}
+                 </div>
+              </div>
+            </div>
+
+           {/* === CATEGORY SUMMARY CARD (Collapsible) === */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm mb-6 overflow-hidden transition-all duration-300">
+               {/* Header: ส่วนหัวข้อที่กดได้ */}
+               <div 
+                  onClick={() => setIsCategoryExpanded(!isCategoryExpanded)}
+                  className="p-5 flex justify-between items-center cursor-pointer bg-white hover:bg-gray-50 transition-colors"
+               >
+                  <div className="flex items-center gap-2">
+                     <PieChart className="w-5 h-5 text-orange-500"/>
+                     <h2 className="text-gray-800 font-bold text-sm">สรุปตามหมวดหมู่</h2>
+                     {/* ถ้าปิดอยู่ ให้โชว์ยอดรวมสรุปสั้นๆ */}
+                     {!isCategoryExpanded && (
+                        <span className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                           รวม {formatMoney(calculation.totalShared)}
+                        </span>
+                     )}
+                  </div>
+                  <button className="text-gray-400">
+                     {isCategoryExpanded ? <ChevronLeft className="w-5 h-5 -rotate-90 transition-transform" /> : <ChevronLeft className="w-5 h-5 rotate-180 transition-transform" />}
+                  </button>
+               </div>
+
+               {/* Content: เนื้อหาที่จะแสดงเมื่อเปิด */}
+               {isCategoryExpanded && (
+                  <div className="px-5 pb-5 animate-in slide-in-from-top-2">
+                     {/* ปุ่มสลับโหมด รวม/แยก (ย้ายมาไว้ข้างใน) */}
+                     <div className="flex justify-end mb-4">
+                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                           <button 
+                              onClick={(e) => { e.stopPropagation(); setCategoryViewMode('total'); }} 
+                              className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${categoryViewMode === 'total' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                           >
+                              รวม
+                           </button>
+                           <button 
+                              onClick={(e) => { e.stopPropagation(); setCategoryViewMode('separate'); }} 
+                              className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${categoryViewMode === 'separate' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                           >
+                              แยก
+                           </button>
+                        </div>
+                     </div>
+                     
+                     <div className="space-y-5">
+                        {calculation.sortedCategories.length === 0 ? (
+                           <p className="text-center text-gray-300 text-sm py-4">ยังไม่มีข้อมูล</p>
+                        ) : (
+                           calculation.sortedCategories.map(([cat, data]) => (
+                              <div key={cat} className="mb-2">
+                                 <div className="flex justify-between items-end mb-2">
+                                    <span className="text-sm font-bold text-gray-700">{cat}</span>
+                                    <span className="text-base font-extrabold text-gray-900 tracking-tight">{formatMoney(data.total)}</span>
+                                 </div>
+                                 
+                                 <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden flex">
+                                    {categoryViewMode === 'total' ? (
+                                         <div className="h-full bg-orange-500" style={{ width: `${(data.total / calculation.sortedCategories[0][1].total) * 100}%` }}></div>
+                                    ) : (
+                                       users.map((u, idx) => {
+                                          const userShare = data.users[u.name] || 0;
+                                          const pct = (userShare / data.total) * 100;
+                                          if (pct === 0) return null;
+                                          return <div key={u.id} className={`h-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }}></div>;
+                                      })
+                                    )}
+                                 </div>
+                                 
+                                 {categoryViewMode === 'separate' && (
+                                    <div className="flex justify-end gap-3 mt-1.5 text-[10px] text-gray-400 font-medium">
+                                       {users.map((u, idx) => {
+                                          const val = data.users[u.name] || 0;
+                                          if (val === 0) return null;
+                                          return (
+                                             <span key={u.id} className="flex items-center gap-1">
+                                                <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
+                                                {u.name} {formatMoney(val)}
+                                             </span>
+                                          );
+                                       })}
+                                    </div>
+                                 )}
+                              </div>
+                           ))
+                        )}
+                     </div>
+                  </div>
+               )}
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
+               {[
+                 { id: 'expenses', label: 'รายการ', icon: Calculator },
+                 { id: 'logs', label: 'ประวัติ', icon: History },
+                 { id: 'users', label: 'ผู้ใช้', icon: Users },
+                 { id: 'categories', label: 'หมวดหมู่', icon: Tag },
+               ].map(tab => {
+                  const TabIcon = tab.icon;
+                  return (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === tab.id ? 'bg-orange-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
+                    >
+                        <TabIcon className="w-3 h-3"/> {tab.label}
+                    </button>
+                  )
+               })}
+            </div>
+
+            {activeTab === 'expenses' && (
+                <div className="space-y-3 mb-32">
+                   <FilterBar />
+                   {displayedExpenses.length === 0 ? (
+                      <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300"><p>ไม่มีรายการในช่วงเวลานี้</p></div>
+                   ) : (
+                        displayedExpenses.map((exp) => (
+                        <div key={exp.id} className={`p-4 rounded-2xl shadow-sm border flex justify-between items-center group relative overflow-hidden bg-white border-gray-100 hover:shadow-md transition-shadow`}>
+                          <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${users[0] && exp.payer === users[0].name ? 'bg-orange-400' : 'bg-blue-400'}`}></div>
+                          <div className="flex-1 ml-4">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-gray-800 text-sm">{exp.title}</h3>
+                              <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] rounded-full">{exp.category}</span>
+                              {exp.type === 'shared' && <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-[10px] rounded-full font-bold">หารกัน</span>}
+                              {exp.type === 'personal' && <span className="px-2 py-0.5 bg-purple-100 text-purple-600 text-[10px] rounded-full font-bold">ส่วนตัว</span>}
+                              {exp.type === 'installment' && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded-full font-bold">ผ่อนชำระ</span>}
+                              {exp.type === 'transfer' && <span className="px-2 py-0.5 bg-green-100 text-green-600 text-[10px] rounded-full">โอนเงิน</span>}
+                              {exp.type === 'advance' && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] rounded-full">ออกให้</span>}
+                              {exp.attachments && exp.attachments.length > 0 && <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] rounded-full flex items-center gap-1"><Paperclip className="w-3 h-3"/> {exp.attachments.length}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-400">
+                               <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(exp.date).toLocaleDateString('th-TH')}</span>
+                              <span>•</span>
+                              <span className="flex items-center gap-1"><UserCircle className="w-3 h-3"/> จ่ายโดย {exp.payer}</span>
+                            </div>
+                            {exp.note && <p className="text-xs text-gray-400 mt-1 italic pl-2 border-l-2 border-gray-200">"{exp.note}"</p>}
+                          </div>
+                          <div className="text-right pl-3">
+                             <p className={`font-bold text-lg ${exp.type === 'transfer' ? 'text-green-600' : 'text-gray-800'}`}>{formatMoney(exp.amount)}</p>
+                            <div className="flex gap-2 justify-end mt-2 opacity-30 group-hover:opacity-100 transition-opacity">
+                              {exp.attachments && exp.attachments.length > 0 && (
+                                 <button onClick={() => setViewingAttachments(exp)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Paperclip className="w-3 h-3"/></button>
+                              )}
+                              <button onClick={() => { setFormData({...exp, date: exp.date.split('T')[0]}); setEditingId(exp.id); setIsModalOpen(true); }} className="p-1.5 bg-yellow-100 text-yellow-600 rounded-lg hover:bg-yellow-200"><Edit2 className="w-3 h-3"/></button>
+                              <button onClick={(e) => handleDelete(exp.id, exp.title, exp.amount, e)} className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"><Trash2 className="w-3 h-3"/></button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                   )}
+                </div>
+            )}
+
+            {activeTab === 'users' && (
+                <div className="bg-white rounded-2xl p-6 shadow-sm mb-32">
+                  <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4"><Users className="w-5 h-5"/> จัดการผู้ใช้งาน</h2>
+                  <div className="space-y-3">
+                     {users.map(u => (
+                        <div key={u.id} className="flex justify-between items-center p-4 border border-gray-100 rounded-xl hover:bg-gray-50">
+                           <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-500 font-bold text-lg">{u.name.charAt(0)}</div>
+                              <div><p className="font-bold text-gray-800">{u.name}</p><p className="text-xs text-gray-400 flex items-center gap-1"><Mail className="w-3 h-3"/> {u.email}</p></div>
+                           </div>
+                           <button onClick={() => { setUserFormData(u); setIsUserModalOpen(true); }} className="p-2 text-gray-400 hover:text-orange-500 bg-gray-50 hover:bg-orange-50 rounded-full"><Edit2 className="w-4 h-4"/></button>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            )}
+            
+            {activeTab === 'categories' && (
+               <div className="bg-white rounded-2xl p-6 shadow-sm mb-32">
+                  <div className="flex justify-between items-center mb-6">
+                     <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Tag className="w-5 h-5"/> จัดการหมวดหมู่</h2>
+                     <button onClick={() => setIsCategoryModalOpen(true)} className="bg-orange-100 text-orange-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-orange-200"><Plus className="w-3 h-3"/> เพิ่ม</button>
+                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                     {categories.map(cat => (
+                        <div key={cat} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl bg-gray-50">
+                           <span className="text-sm font-medium text-gray-700">{cat}</span>
+                           <button onClick={() => handleDeleteCategory(cat)} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4"/></button>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            )}
+            
+            {activeTab === 'logs' && (
+               <div className="space-y-3 mb-32">
+                  <FilterBar />
+                  {displayedLogs.length === 0 ? <div className="text-center py-10 text-gray-400 bg-white rounded-2xl">ไม่มีประวัติในช่วงเวลานี้</div> : 
+                     displayedLogs.map(log => (
+                        <div key={log.id} className="bg-white p-4 rounded-xl border-l-4 border-orange-400 shadow-sm">
+                           <div className="flex justify-between items-start mb-1">
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded ${log.action === 'เพิ่ม' ? 'bg-green-100 text-green-700' : log.action === 'ลบ' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{log.action}</span>
+                              <span className="text-[10px] text-gray-400">{new Date(log.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} {new Date(log.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                           </div>
+                           <p className="text-sm text-gray-800 font-medium mt-1">{log.detail}</p>
+                           <p className="text-xs text-gray-400 mt-2 flex items-center gap-1 border-t pt-2"><UserCircle className="w-3 h-3"/> ทำรายการโดย: {log.actor}</p>
+                        </div>
+                     ))
+                  }
+               </div>
+            )}
+
+            {activeTab === 'expenses' && (
+              <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="fixed bottom-8 right-6 bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-full shadow-xl hover:scale-110 transition-transform z-30"><Plus className="w-8 h-8" /></button>
+            )}
+
+            {viewingAttachments && (
+               <div className="fixed inset-0 bg-black/90 z-50 flex flex-col justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                  <div className="flex justify-between items-center text-white mb-4">
+                     <h2 className="text-lg font-bold">ไฟล์แนบ ({viewingAttachments.attachments.length})</h2>
+                     <button onClick={() => setViewingAttachments(null)} className="p-2 bg-white/20 rounded-full hover:bg-white/30"><X className="w-6 h-6"/></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-4">
+                     {viewingAttachments.attachments.map((att, idx) => (
+                        <div key={idx} className="bg-white rounded-lg overflow-hidden">
+                           {att.type.startsWith('image/') ? (
+                              <img src={att.data || att.url} alt="attachment" className="w-full h-auto object-contain" />
+                           ) : (
+                              <div className="p-10 flex flex-col items-center justify-center text-gray-500 gap-2">
+                                 <FileText className="w-12 h-12 text-red-400"/>
+                                 <span className="text-sm font-bold">{att.name}</span>
+                                 <a href={att.data || att.url} target="_blank" download={att.name} className="text-xs bg-gray-100 px-3 py-1 rounded-full mt-2 hover:bg-gray-200">เปิดดู / ดาวน์โหลด PDF</a>
+                              </div>
+                           )}
+                           <div className="p-2 text-xs text-gray-500 bg-gray-50 text-center border-t">{att.name}</div>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            )}
+
+            {isModalOpen && (
+              <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-gray-800">{editingId ? 'แก้ไขรายการ' : 'เพิ่มรายการใหม่'}</h2>
+                    <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200"><X className="w-5 h-5" /></button>
+                  </div>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+<div className="bg-orange-50 p-1.5 rounded-xl flex gap-1 overflow-x-auto no-scrollbar mb-4">
+   {['shared', 'personal', 'advance', 'installment', 'transfer'].map(t => (
+      <button 
+        key={t} 
+        type="button" 
+        onClick={() => {
+            setFormData(prev => ({...prev, type: t}));
+            // ถ้าไม่ใช่โอนคืน ให้เคลียร์ค่าการเลือกรายการผ่อน
+            if (t !== 'transfer') {
+               setSelectedCycles([]); 
+               setFormData(prev => ({...prev, relatedInstallments: []}));
+            }
+        }} 
+        className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${formData.type === t ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:bg-white/50'}`}>
+        {t === 'shared' ? 'หารกัน' : t === 'personal' ? 'ส่วนตัว' : t === 'advance' ? 'ออกให้' : t === 'installment' ? 'ผ่อนชำระ' : 'โอนคืน'}
+       </button>
+   ))}
+</div>
+
+{/* ส่วน Slider หารกัน (แสดงเมื่อเลือก หารกัน) */}
+{formData.type === 'shared' && users.length >= 2 && (
+    <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mb-4">
+      <div className="flex justify-between mb-2 text-xs font-bold text-gray-600">
+         <span>{users[0].name} ({formData.split}%)</span>
+         <span>{users[1].name} ({100 - formData.split}%)</span>
+      </div>
+      <input 
+        type="range" min="0" max="100" step="5" 
+        value={formData.split} 
+        onChange={(e) => setFormData(prev => ({...prev, split: parseInt(e.target.value)}))}
+        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+      />
+      {formData.amount > 0 && (
+         <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+            <span>{formatMoney(formData.amount * (formData.split/100))}</span>
+            <span>{formatMoney(formData.amount * ((100-formData.split)/100))}</span>
+         </div>
+      )}
+   </div>
+)}
+
+{/* ส่วน Slider จำนวนงวด (แสดงเมื่อเลือก ผ่อนชำระ) */}
+{formData.type === 'installment' && (
+   <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-4">
+      <div className="flex justify-between items-center mb-2">
+         <label className="text-xs font-bold text-blue-600">จำนวนงวดผ่อน</label>
+         <span className="text-xl font-bold text-blue-700">{formData.months} เดือน</span>
+      </div>
+      <input 
+         type="range" min="2" max="36" step="1" 
+         value={formData.months} 
+         onChange={(e) => setFormData(prev => ({...prev, months: parseInt(e.target.value)}))}
+         className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+      />
+      {formData.amount > 0 && (
+         <div className="text-right mt-2 text-xs font-bold text-blue-500">
+            ตกเดือนละ {formatMoney(formData.amount / formData.months)}
+         </div>
+      )}
+   </div>
+)}
+
+{/* ส่วนเลือกรายการผ่อนที่จะจ่าย (แสดงเมื่อเลือก โอนคืน) */}
+{formData.type === 'transfer' && activeInstallments && activeInstallments.length > 0 && (
+   <div className="mb-4 animate-in slide-in-from-top-2">
+      <label className="text-xs font-bold text-gray-500 mb-2 block">เลือกรายการผ่อนที่จะจ่ายรอบนี้</label>
+      <div className="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200">
+         {activeInstallments.map(inst => {
+            const paid = installmentProgress[inst.id] || 0;
+            const perMonth = inst.amount / inst.months;
+            const isSelected = formData.relatedInstallments && formData.relatedInstallments.some(x => x.id === inst.id);
+            
+            return (
+               <div key={inst.id} 
+                  onClick={() => {
+                     let newRelated;
+                     const currentAmount = parseFloat(formData.amount) || 0;
+                     if (isSelected) {
+                        newRelated = formData.relatedInstallments.filter(x => x.id !== inst.id);
+                        setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount - perMonth }));
+                     } else {
+                        newRelated = [...(formData.relatedInstallments || []), inst];
+                        setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount + perMonth }));
+                     }
+                  }}
+                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-orange-100 border-orange-300 ring-1 ring-orange-300' : 'bg-white border-gray-200 hover:border-orange-200'}`}
+               >
+                  <div className="flex items-center gap-3">
+                     <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${isSelected ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                     </div>
+                     <div>
+                        <p className="text-xs font-bold text-gray-700">{inst.title}</p>
+                        <p className="text-[10px] text-gray-400">งวดที่ {paid + 1}/{inst.months}</p>
+                     </div>
+                  </div>
+                  <span className="text-sm font-bold text-gray-800">{formatMoney(perMonth)}</span>
+               </div>
+            );
+         })}
+      </div>
+   </div>
+)}
+
+                    {formData.type !== 'transfer' && (
+                      <div>
+                        <label className="text-xs font-bold text-gray-500 mb-1 flex justify-between">ชื่อรายการ <span className="text-orange-400 font-normal flex items-center gap-1"><Sparkles className="w-3 h-3"/> Auto-Tag</span></label>
+                        <input 
+                           type="text" 
+                           name="title" 
+                           list="history-titles" 
+                           value={formData.title} 
+                           onChange={handleInputChange} 
+                           className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                           placeholder="เช่น ค่าข้าว, ค่าน้ำมัน..." 
+                           required 
+                           autoComplete="off" 
+                        />
+                        <datalist id="history-titles">
+                           {historyTitles.map((t, i) => <option key={i} value={t} />)}
+                        </datalist>
+                      </div>
+                    )}
+                    
+{/* 1. ส่วนจำนวนเงิน (แก้ไข Logic Max Limit) */}
+   <div>
+      <label className="text-xs font-bold text-gray-500 mb-1 block text-center">ระบุจำนวนเงิน</label>
+      <div className="relative">
+         <input 
+            type="number" 
+            name="amount" 
+            value={formData.amount} 
+            max={
+               formData.type === 'transfer' && formData.payer && calculation.adjustedPrevStats[formData.payer]
+               ? (() => {
+                  // 1. หายอดหนี้คงเหลือเดิม (Existing Debt)
+                  let currentNet = calculation.adjustedPrevStats[formData.payer].netBalance;
+                  
+                  // กรณีแก้ไข: ให้บวกยอดเดิมกลับเข้าไปก่อน เพื่อหาหนี้ที่แท้จริง
+                  if (editingId) {
+                     const originalItem = expenses.find(e => e.id === editingId);
+                     if (originalItem && originalItem.type === 'transfer' && originalItem.payer === formData.payer) {
+                        currentNet -= originalItem.amount;
+                     }
+                  }
+                  
+                  // แปลงเป็นยอดหนี้ (ถ้าติดลบ = เป็นหนี้, ถ้าบวก = 0)
+                  const debtAmount = currentNet < 0 ? Math.abs(currentNet) : 0;
+
+                  // 2. หายอดผ่อนที่เลือกไว้ (Installment Amount)
+                  let installmentTotal = 0;
+                  if (formData.relatedInstallments && formData.relatedInstallments.length > 0) {
+                      installmentTotal = formData.relatedInstallments.reduce((sum, item) => sum + (item.amount / item.months), 0);
+                  }
+
+                  // 3. เอา "หนี้เก่า" + "ค่าผ่อนรอบนี้" มารวมกันเป็น Max Limit
+                  return debtAmount + installmentTotal;
+               })()
+               : undefined
+            }
+            onChange={handleInputChange} 
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-center font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all placeholder-gray-400" 
+            placeholder="0.00" 
+            required 
+         />
+         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">THB</span>
+      </div>
+      
+      {/* แจ้งเตือนยอดหนี้ (ถ้ามี) */}
+      {formData.type === 'transfer' && formData.payer && calculation.adjustedPrevStats[formData.payer]?.netBalance < 0 && (
+         <div className="mt-2 bg-red-50 border border-red-100 rounded-lg p-2 flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-2">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <span className="text-xs text-red-600 font-bold">
+               ยอดค้างเก่า: {formatMoney(Math.abs(calculation.adjustedPrevStats[formData.payer].netBalance))}
+            </span>
+         </div>
+      )}
+   </div>
+
+   {/* 2. ส่วนวันที่ (แยกออกมาบรรทัดใหม่) */}
+   <div>
+      <label className="text-xs font-bold text-gray-500 mb-1 block">วันที่</label>
+      <div className="relative">
+         <input 
+            type="date" 
+            name="date" 
+            value={formData.date} 
+            onChange={handleInputChange} 
+            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 pl-10 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all" 
+         />
+         <Calendar className="w-4 h-4 text-gray-400 absolute left-3 top-3.5 pointer-events-none"/>
+      </div>
+   </div>
+<div>
+                       <label className="text-xs font-bold text-gray-500 mb-1 block">หมายเหตุ</label>
+                       {/* 👇 เอา input number อันเก่าออก แล้ววางอันนี้แทน 👇 */}
+                       <input 
+                          type="text" 
+                          name="note" 
+                          value={formData.note} 
+                          onChange={handleInputChange} 
+                          className="w-full bg-gray-50 border border-gray-200 border rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                          placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)" 
+                       />
+                    </div>
+                    <div>
+                       <label className="text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><Paperclip className="w-3 h-3"/> แนบรูป/ไฟล์ (เลือกได้หลายไฟล์)</label>
+                       <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition-colors relative">
+                          <input type="file" multiple accept="image/*,application/pdf" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
+                          <div className="flex flex-col items-center gap-1 text-gray-400">
+                             <Upload className="w-6 h-6"/>
+                             <span className="text-xs">แตะเพื่อเลือกรูปหรือ PDF</span>
+                          </div>
+                       </div>
+                       {formData.attachments && formData.attachments.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                             {formData.attachments.map((att, idx) => (
+                                <div key={idx} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                   <div className="flex items-center gap-2 overflow-hidden">
+                                      {att.type.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-blue-500 flex-shrink-0"/> : <FileText className="w-4 h-4 text-red-500 flex-shrink-0"/>}
+                                      <span className="text-xs text-gray-600 truncate max-w-[150px]">{att.name}</span>
+                                   </div>
+                                   <button type="button" onClick={() => removeAttachment(idx)} className="text-red-400 hover:text-red-600"><X className="w-4 h-4"/></button>
+                                </div>
+                             ))}
+                          </div>
+                       )}
+                    </div>
+
+                    {formData.type !== 'transfer' && (
+                       <div>
+                          <label className="text-xs font-bold text-gray-500 mb-1 block">หมวดหมู่</label>
+                          <div className="relative">
+                            <select name="category" value={formData.category} onChange={handleInputChange} className="w-full bg-gray-50 border-gray-200 border rounded-xl p-3 appearance-none focus:outline-none focus:ring-2 focus:ring-orange-500">
+                               {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                             </select>
+                            <Tag className="w-4 h-4 text-gray-400 absolute right-3 top-3.5 pointer-events-none"/>
+                          </div>
+                       </div>
+                    )}
+                    <div>
+                       <label className="text-xs font-bold text-gray-500 mb-1 block">{formData.type === 'transfer' ? 'คนโอนเงิน' : 'คนจ่ายเงิน'}</label>
+                       <div className="flex gap-2">
+                          {users.map(u => (
+                             <button key={u.id} type="button" onClick={() => setFormData(prev => ({...prev, payer: u.name}))} className={`flex-1 py-3 rounded-xl border font-bold text-sm transition-all ${formData.payer === u.name ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-500'}`}>{u.name}</button>
+                          ))}
+                       </div>
+                    </div>
+
+
+                    <button type="submit" className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all">บันทึก</button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+{isUserModalOpen && (
+               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                     <h2 className="text-lg font-bold mb-4">จัดการผู้ใช้งาน</h2>
+                     <form onSubmit={handleUserSubmit} className="space-y-4">
+                        <input type="text" value={userFormData.name} onChange={e => setUserFormData({...userFormData, name: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="ชื่อ" required/>
+                        
+                        {/* 🟢 แก้ไข: ปรับ placeholder ให้สื่อความหมาย */}
+                        <input 
+                            type="text" // เปลี่ยนเป็น text เพื่อให้พิมพ์เครื่องหมาย , ได้สะดวก
+                            value={userFormData.email} 
+                            onChange={e => setUserFormData({...userFormData, email: e.target.value})} 
+                            className="w-full border p-2 rounded-lg" 
+                            placeholder="อีเมล (เช่น a@gmail.com, b@hotmail.com)" 
+                        />
+                        
+                        <button type="submit" className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold">บันทึก</button>
+                        <button type="button" onClick={() => setIsUserModalOpen(false)} className="w-full text-gray-400 text-xs mt-2">ยกเลิก</button>
+                     </form>
+                  </div>
+               </div>
+            )}
+            {isCategoryModalOpen && (
+               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                     <h2 className="text-lg font-bold mb-4">เพิ่มหมวดหมู่</h2>
+                     <form onSubmit={handleCategorySubmit} className="space-y-4">
+                        <input type="text" value={categoryFormData} onChange={e => setCategoryFormData(e.target.value)} className="w-full border p-2 rounded-lg" placeholder="ชื่อหมวดหมู่" required/>
+                        <button type="submit" className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold">เพิ่ม</button>
+                        <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="w-full text-gray-400 text-xs mt-2">ยกเลิก</button>
+                     </form>
+                  </div>
+               </div>
+            )}
+
+            {showBudgetConfig && (
+               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                     <div className="flex justify-between items-center mb-4"><h3 className="font-bold">ตั้งค่าวงเงิน</h3><button onClick={() => setShowBudgetConfig(false)}><X className="w-5 h-5"/></button></div>
+                     <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                        {budgetRules.map((rule) => (
+                           <div key={rule.id} className="border p-3 rounded-xl bg-gray-50 text-sm">
+                              <div className="flex justify-between mb-2">
+                                 <select value={rule.category} onChange={e => updateRules(budgetRules.map(r => r.id === rule.id ? {...r, category: e.target.value} : r))} className="font-bold bg-transparent">{categories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                                 <input type="number" value={rule.limit} onChange={e => updateRules(budgetRules.map(r => r.id === rule.id ? {...r, limit: parseFloat(e.target.value)} : r))} className="w-20 text-right border rounded px-1"/>
+                              </div>
+                              <div className="space-y-2">
+                                 <div className="flex justify-between"><span>เจ้าของ:</span><select value={rule.owner} onChange={e => updateRules(budgetRules.map(r => r.id === rule.id ? {...r, owner: e.target.value} : r))}>{users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+                                 <div className="flex justify-between"><span>ส่วนเกิน:</span><select value={rule.excessPayer} onChange={e => updateRules(budgetRules.map(r => r.id === rule.id ? {...r, excessPayer: e.target.value} : r))}>{users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select></div>
+                              </div>
+                              <button onClick={() => updateRules(budgetRules.filter(r => r.id !== rule.id))} className="text-red-500 text-xs mt-2 flex items-center gap-1"><MinusCircle className="w-3 h-3"/> ลบ</button>
+                           </div>
+                        ))}
+                        <button onClick={() => updateRules([...budgetRules, { id: Date.now(), category: categories[0], limit: 1000, owner: users[0].name, excessPayer: users[1].name }])} className="w-full py-2 bg-gray-100 rounded-lg text-sm font-bold flex justify-center gap-2"><PlusCircle className="w-4 h-4"/> เพิ่มกฎ</button>
+                     </div>
+                     <button onClick={() => setShowBudgetConfig(false)} className="w-full mt-4 bg-orange-500 text-white font-bold py-2 rounded-xl">เสร็จสิ้น</button>
+                  </div>
+               </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
