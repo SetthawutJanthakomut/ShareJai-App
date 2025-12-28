@@ -1,0 +1,212 @@
+// --- Code.gs ---
+
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setTitle('ShareJai - แอปแชร์ค่าใช้จ่าย');
+}
+
+// ฟังก์ชันสร้างชีทและหัวตาราง (ถ้ายังไม่มี)
+function setupSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ['Expenses', 'Users', 'Categories', 'BudgetRules', 'Logs'];
+  
+  sheets.forEach(name => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      if (name === 'Expenses') sheet.appendRow(['id', 'data']); 
+      if (name === 'Users') sheet.appendRow(['id', 'data']);
+      if (name === 'Categories') sheet.appendRow(['name']);
+      if (name === 'BudgetRules') sheet.appendRow(['id', 'data']);
+      if (name === 'Logs') sheet.appendRow(['id', 'data']);
+    }
+  });
+}
+
+// --- Code.gs ---
+
+function getInitialData() {
+  setupSheet(); 
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // ฟังก์ชันช่วยอ่าน JSON จาก Sheet
+  const readJSON = (sheetName) => {
+    const sheet = ss.getSheetByName(sheetName);
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+    return data.slice(1).map(row => {
+      try { return row[1] ? JSON.parse(row[1]) : null; } catch (e) { return null; }
+    }).filter(x => x);
+  };
+
+  // ดึงหมวดหมู่
+  const catSheet = ss.getSheetByName('Categories');
+  let cats = [];
+  if (catSheet) {
+    cats = catSheet.getDataRange().getValues().slice(1).map(r => r[0]).filter(x => x);
+  }
+
+  // สร้างหมวดหมู่ Default ถ้ายังไม่มี
+  if (cats.length === 0) {
+    cats = ['ทั่วไป', 'อาหาร', 'เดินทาง', 'น้ำมัน', 'เครื่องดื่ม', 'บันเทิง', 'ค่าน้ำค่าไฟ', 'ค่าบ้าน', 'ค่ารถ'];
+    const cSheet = ss.getSheetByName('Categories');
+    if(cSheet) cats.forEach(c => cSheet.appendRow([c]));
+  }
+
+  // ดึง Users
+  let users = readJSON('Users');
+  if (users.length === 0) {
+    users = [
+      { id: 1, name: 'คุณเจ', email: 'jay@example.com', role: 'Admin' },
+      { id: 2, name: 'คุณนี', email: 'nee@example.com', role: 'Member' }
+    ];
+    saveUsers(users);
+  }
+
+  // ✅ เพิ่มบรรทัดนี้: ดึงอีเมลของคนที่กำลังใช้งาน App จริงๆ
+  const activeEmail = Session.getActiveUser().getEmail();
+
+  // ส่งข้อมูลกลับไปที่หน้าบ้าน (รวม activeEmail)
+  return {
+    users: users,
+    categories: cats,
+    expenses: readJSON('Expenses'),
+    budgetRules: readJSON('BudgetRules'),
+    logs: readJSON('Logs'),
+    activeEmail: activeEmail // <--- สำคัญมากสำหรับระบบ Login
+  };
+}
+
+// --- Code.gs : ฟังก์ชัน saveTransaction (ฉบับแก้รูปไม่ขึ้น V.Final) ---
+
+function saveTransaction(expense) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName('Expenses');
+    if (!sheet) { setupSheet(); sheet = ss.getSheetByName('Expenses'); }
+
+    // ✅ ระบบอัปโหลดรูปขึ้น Google Drive
+    if (expense.attachments && expense.attachments.length > 0) {
+      const folderName = "ShareJai_Attachments";
+      const folders = DriveApp.getFoldersByName(folderName);
+      let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+      expense.attachments = expense.attachments.map(att => {
+        // ถ้าเป็นไฟล์ใหม่ (มี Base64 data) ให้อัปโหลด
+        if (att.data && att.data.includes("base64,")) {
+          try {
+            const contentType = att.data.split(',')[0].split(':')[1].split(';')[0];
+            const base64Data = att.data.split(',')[1];
+            const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), contentType, att.name);
+            
+            const file = folder.createFile(blob);
+            file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+            const fileId = file.getId();
+            
+            // ✅ จุดที่แก้ไข: แยกประเภทลิงก์เพื่อให้รูปขึ้นแน่นอน
+            let viewUrl;
+            if (att.type.startsWith('image/')) {
+               viewUrl = "https://lh3.googleusercontent.com/d/" + fileId;
+            } else {
+               viewUrl = "https://drive.google.com/file/d/" + fileId + "/view?usp=sharing";
+            }
+
+            return {
+              name: att.name,
+              type: att.type,
+              url: viewUrl, 
+              id: fileId
+            };
+          } catch (e) {
+            return { name: att.name, type: att.type, error: "Upload Failed" };
+          }
+        }
+        // ถ้าเป็นไฟล์เก่าที่มี URL อยู่แล้ว ให้ใช้ค่าเดิม
+        return att;
+      });
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+    
+    // ค้นหา ID เดิมเพื่อแก้ไข
+    for (let i = 1; i < data.length; i++) {
+      try {
+        if (data[i][1]) {
+           const item = JSON.parse(data[i][1]);
+           if (item && item.id == expense.id) {
+             rowIndex = i + 1;
+             break;
+           }
+        }
+      } catch (e) { continue; }
+    }
+
+    const json = JSON.stringify(expense);
+
+    if (rowIndex > 0) {
+      sheet.getRange(rowIndex, 2).setValue(json);
+    } else {
+      sheet.appendRow([expense.id, json]);
+    }
+    return "Success";
+  } catch (err) {
+    throw new Error(err.message);
+  }
+}
+function deleteTransaction(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Expenses');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    try {
+      if (data[i][1] && JSON.parse(data[i][1]).id == id) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    } catch(e) { continue; }
+  }
+}
+
+function saveLog(log) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Logs');
+  if (!sheet) { setupSheet(); sheet = ss.getSheetByName('Logs'); }
+  sheet.appendRow([log.id, JSON.stringify(log)]);
+}
+
+function saveUsers(users) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Users');
+  sheet.clearContents();
+  sheet.appendRow(['id', 'data']);
+  users.forEach(u => sheet.appendRow([u.id, JSON.stringify(u)]));
+}
+
+function saveCategory(newCat) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheetByName('Categories').appendRow([newCat]);
+}
+
+function deleteCategory(catName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Categories');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] == catName) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
+}
+
+function saveBudgetRules(rules) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('BudgetRules');
+  sheet.clearContents();
+  sheet.appendRow(['id', 'data']);
+  rules.forEach(r => sheet.appendRow([r.id, JSON.stringify(r)]));
+}
