@@ -57,14 +57,14 @@
 
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
-    const { 
-      Plus, Trash2, Edit2, History, Wallet, Calendar, Users, 
-      Calculator, ArrowRight, Save, X, HandCoins, ArrowLeftRight, 
-      CheckCircle2, Settings, AlertTriangle, PlusCircle, MinusCircle, 
-      Sparkles, UserCircle, Eye, Mail, Tag, BarChart3, PieChart,
-      ChevronLeft, ChevronRight, Filter, Clock, Paperclip, FileText, 
-      Image: ImageIcon, Upload, Percent
-    } = window.lucideReact;
+ const { 
+  Plus, Trash2, Edit2, History, Wallet, Calendar, Users, 
+  Calculator, ArrowRight, Save, X, HandCoins, ArrowLeftRight, 
+  CheckCircle2, Settings, AlertTriangle, PlusCircle, MinusCircle, 
+  Sparkles, UserCircle, Eye, Mail, Tag, BarChart3, PieChart,
+  ChevronLeft, ChevronRight, Filter, Clock, Paperclip, FileText, 
+  Image: ImageIcon, Upload, Percent, Search // <--- ✅ เพิ่ม Search ตรงนี้
+} = window.lucideReact;
 
     const App = () => {
       const [isLoading, setIsLoading] = useState(true);
@@ -80,7 +80,7 @@
       const [viewingAttachments, setViewingAttachments] = useState(null);
       const [viewDate, setViewDate] = useState(new Date());
       const [categoryViewMode, setCategoryViewMode] = useState('total');
-      const [filterMode, setFilterMode] = useState('last3');
+      const [filterMode, setFilterMode] = useState('all');
       const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
       const [showBudgetConfig, setShowBudgetConfig] = useState(false);
       const [budgetRules, setBudgetRules] = useState([]);
@@ -265,10 +265,11 @@ const calculation = useMemo(() => {
         const prevStats = {};
         
         // 🟢 ประกาศตัวแปร installmentPayment เริ่มต้นเป็น 0 ให้ครบทุกคน
-        users.forEach(u => {
-            stats[u.name] = { paid: 0, cost: 0, personal: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0 };
-            prevStats[u.name] = { paid: 0, cost: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0 };
-        });
+       users.forEach(u => {
+    // ✅ แก้ไข: เพิ่ม advanceDebt: 0 เข้าไปใน object
+    stats[u.name] = { paid: 0, cost: 0, personal: 0, advanceDebt: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0 };
+    prevStats[u.name] = { paid: 0, cost: 0, transferIn: 0, transferOut: 0, netBalance: 0, installmentPayment: 0, advanceDebt: 0 };
+});
         
         const categoryStats = {};
         categories.forEach(c => {
@@ -336,14 +337,21 @@ const calculation = useMemo(() => {
                     targetStats[payerName].cost += val;
                     targetStats[payerName].personal += val;
                     if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[payerName] += val;
-                 } else if (exp.type === 'advance') {
-                    const others = users.filter(u => u.name !== payerName);
-                    others.forEach(u => { 
-                        const share = val / others.length;
-                        targetStats[u.name].cost += share; 
-                        if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[u.name] += share;
-                    });
-                 }
+    } else if (exp.type === 'advance') {
+    const others = users.filter(u => u.name !== payerName);
+    others.forEach(u => { 
+        const share = val / others.length;
+        targetStats[u.name].cost += share; 
+
+        // ❌ ลบหรือคอมเมนต์บรรทัดเดิมที่บวกเข้า personal
+        // targetStats[u.name].personal += share; 
+
+        // ✅ เพิ่ม: บวกเข้า advanceDebt แทน
+        targetStats[u.name].advanceDebt += share;
+
+        if(isCurrentCycle && categoryStats[exp.category]) categoryStats[exp.category].users[u.name] += share;
+    });
+}
             } else {
                  if (exp.type === 'shared') totalShared += val;
             }
@@ -569,13 +577,58 @@ const debtsByCycle = useMemo(() => {
           }));
       };
 
-      const handleInputChange = (e) => {
+const handleInputChange = (e) => {
         const { name, value } = e.target;
+        
         if (name === 'title') {
-           const detected = detectCategory(value);
-           if (detected) setFormData(prev => ({ ...prev, [name]: value, category: detected }));
-           else setFormData(prev => ({ ...prev, [name]: value }));
-        } else setFormData(prev => ({ ...prev, [name]: value }));
+           let suggestedCategory = null;
+           const cleanTitle = value.trim().toLowerCase();
+
+           if (cleanTitle) {
+               // 1. ดึงประวัติทั้งหมดที่ชื่อซ้ำกันออกมา (ไม่เอาแค่ล่าสุด)
+               const matchingExpenses = expenses.filter(exp => 
+                   exp.title && exp.title.trim().toLowerCase() === cleanTitle
+               );
+
+               if (matchingExpenses.length > 0) {
+                   // 2. นับความถี่ของแต่ละหมวดหมู่ (Frequency Count)
+                   // ตัวอย่างผลลัพธ์: { 'อาหาร': 5, 'ทั่วไป': 1 }
+                   const categoryCounts = matchingExpenses.reduce((acc, curr) => {
+                       const cat = curr.category;
+                       if (cat) {
+                           acc[cat] = (acc[cat] || 0) + 1;
+                       }
+                       return acc;
+                   }, {});
+
+                   // 3. หาหมวดหมู่ที่มีคะแนนสูงสุด (Most Frequent)
+                   // เรียงลำดับจากมากไปน้อย แล้วหยิบตัวแรก
+                   const sortedCategories = Object.keys(categoryCounts).sort(
+                       (a, b) => categoryCounts[b] - categoryCounts[a]
+                   );
+                   
+                   if (sortedCategories.length > 0) {
+                       suggestedCategory = sortedCategories[0]; // ✅ หมวดหมู่ที่ใช้บ่อยสุด
+                   }
+               }
+           }
+
+           // 4. ถ้ายังไม่เจอในประวัติ ให้ใช้ระบบเดาคำ (Autotag) เดิมช่วย
+           if (!suggestedCategory) {
+               suggestedCategory = detectCategory(value);
+           }
+
+           // อัปเดต State
+           if (suggestedCategory) {
+               setFormData(prev => ({ ...prev, [name]: value, category: suggestedCategory }));
+           } else {
+               setFormData(prev => ({ ...prev, [name]: value }));
+           }
+
+        } else {
+            // กรณีเปลี่ยน field อื่น
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
       };
 
 const handleSubmit = (e) => {
@@ -709,23 +762,39 @@ const handleSubmit = (e) => {
           syncBudgetRules(newRules);
       };
 
-      const FilterBar = () => (
-         <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-2 pt-1">
-            <span className="text-xs font-bold text-gray-400 whitespace-nowrap flex items-center gap-1">
-               <Filter className="w-3 h-3"/> กรอง:
-            </span>
-            <button onClick={() => setFilterMode('last3')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterMode === 'last3' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
-               <Clock className="w-3 h-3"/> 3 วันล่าสุด
-            </button>
-            <button onClick={() => setFilterMode('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${filterMode === 'all' ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>
-               ทั้งหมด ({activeTab === 'expenses' ? 'ในรอบ' : 'ตลอด'})
-            </button>
-            <div className="relative">
-               <input type="date" value={filterDate} onChange={(e) => { setFilterDate(e.target.value); setFilterMode('date'); }} className={`pl-8 pr-2 py-1.5 rounded-lg text-xs font-bold border outline-none transition-colors ${filterMode === 'date' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}/>
-               <Calendar className={`w-3 h-3 absolute left-2.5 top-2 ${filterMode === 'date' ? 'text-orange-500' : 'text-gray-400'}`} />
-            </div>
-         </div>
-      );
+const FilterBar = () => {
+         const filters = [
+            { id: 'all', label: 'ทั้งหมด' },
+            { id: 'shared', label: 'หารกัน' },
+            { id: 'personal', label: 'ส่วนตัว' },
+            { id: 'advance', label: 'ออกให้' },
+            { id: 'transfer', label: 'โอนคืน' },
+            { id: 'installment', label: 'ผ่อนชำระ' }
+         ];
+
+         return (
+             <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar pb-2 pt-1">
+                <span className="text-xs font-bold text-gray-400 whitespace-nowrap flex items-center gap-1">
+                   <Filter className="w-3 h-3"/> กรอง:
+                </span>
+                
+                {filters.map(f => (
+                    <button 
+                        key={f.id}
+                        onClick={() => setFilterMode(f.id)} 
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterMode === f.id ? 'bg-orange-100 text-orange-600 ring-1 ring-orange-200' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}
+                    >
+                       {f.label}
+                    </button>
+                ))}
+
+                <div className="relative border-l pl-2 ml-1">
+                   <input type="date" value={filterDate} onChange={(e) => { setFilterDate(e.target.value); setFilterMode('date'); }} className={`pl-8 pr-2 py-1.5 rounded-lg text-xs font-bold border outline-none transition-colors ${filterMode === 'date' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}/>
+                   <Calendar className={`w-3 h-3 absolute left-4 top-2 ${filterMode === 'date' ? 'text-orange-500' : 'text-gray-400'}`} />
+                </div>
+             </div>
+         );
+      };
 
       const expensesInCycleDisplay = useMemo(() => {
         const { startDate, endDate } = currentCycleInfo;
@@ -735,22 +804,41 @@ const handleSubmit = (e) => {
         });
       }, [expenses, currentCycleInfo]);
 
-      const displayedExpenses = useMemo(() => {
-        let data = [...expensesInCycleDisplay];
-        data.sort((a, b) => new Date(b.date) - new Date(a.date));
+// 1. ✅ เพิ่ม State สำหรับเก็บคำค้นหา (วางไว้รวมกับ State อื่นๆ ด้านบน)
+const [searchTerm, setSearchTerm] = useState('');
 
-        if (filterMode === 'last3') {
-           const today = new Date();
-           const threeDaysAgo = new Date();
-           threeDaysAgo.setDate(today.getDate() - 3);
-           threeDaysAgo.setHours(0, 0, 0, 0);
-           data = data.filter(exp => new Date(exp.date) >= threeDaysAgo);
-        } else if (filterMode === 'date') {
-           const target = new Date(filterDate).toDateString();
-           data = data.filter(exp => new Date(exp.date).toDateString() === target);
-        }
-        return data;
-      }, [expensesInCycleDisplay, filterMode, filterDate]);
+// 2. ✅ แก้ไข Logic การแสดงผลให้รองรับการค้นหา
+const displayedExpenses = useMemo(() => {
+  let data = [...expensesInCycleDisplay];
+  
+  // เรียงลำดับวันที่ (เหมือนเดิม)
+  data.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // --- ส่วนที่เพิ่มใหม่: กรองตามคำค้นหา (Search Logic) ---
+  if (searchTerm) {
+      const lowerTerm = searchTerm.trim().toLowerCase();
+      data = data.filter(exp => 
+          (exp.title && exp.title.toLowerCase().includes(lowerTerm)) || 
+          (exp.note && exp.note.toLowerCase().includes(lowerTerm))
+      );
+  }
+  // -----------------------------------------------------
+
+  // Logic การกรองเดิม (Date / Type)
+  if (filterMode === 'date') {
+     const target = new Date(filterDate).toDateString();
+     data = data.filter(exp => new Date(exp.date).toDateString() === target);
+  } else if (filterMode !== 'all') { // กรณีแก้ FilterBar เป็น Type แล้ว
+     data = data.filter(exp => exp.type === filterMode);
+  } else if (filterMode === 'last3') { // กรณีเผื่อยังใช้ logic เก่า
+     const threeDaysAgo = new Date();
+     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+     threeDaysAgo.setHours(0, 0, 0, 0);
+     data = data.filter(exp => new Date(exp.date) >= threeDaysAgo);
+  }
+
+  return data;
+}, [expensesInCycleDisplay, filterMode, filterDate, searchTerm]); // ✅ อย่าลืมใส่ searchTerm ใน dependency
 
       const displayedLogs = useMemo(() => {
         let data = [...logs];
@@ -1033,45 +1121,70 @@ const handleSubmit = (e) => {
               <div className="mt-8 pt-4 border-t border-gray-100">
                  <h3 className="text-sm font-bold text-gray-600 mb-4">สรุปค่าใช้จ่ายจริง (ตามงบที่ตั้ง)</h3>
 <div className="grid grid-cols-2 gap-4">
-                    {users.map((u, idx) => {
-                       const s = calculation.stats[u.name] || { paid:0, cost:0, personal:0, netBalance:0, installmentPayment: 0 };
-                       const isPositive = s.netBalance > 0;
-                       
-                       // คำนวณยอดที่จะโชว์ (บวกยอดผ่อน) + ใส่กันพลาด (|| 0)
-                       const displayCost = s.cost + (s.installmentPayment || 0);
-                       const displayPaid = s.paid + (s.installmentPayment || 0);
+  {users.map((u, idx) => {
+      const s = calculation.stats[u.name] || { paid:0, cost:0, personal:0, netBalance:0, installmentPayment: 0, advanceDebt: 0 };
+      const isPositive = s.netBalance > 0;
+      const displayCost = s.cost + (s.installmentPayment || 0);
+      const displayPaid = s.paid + (s.installmentPayment || 0);
 
-                       return (
-                           <div key={u.id} className={`rounded-xl p-3 border relative overflow-hidden ${currentUser?.name === u.name ? 'bg-yellow-50/50 border-yellow-200' : 'bg-white border-gray-100'}`}>
-                              {Math.abs(s.netBalance) > 1 && (
-                                 <div className={`absolute top-0 right-0 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}>
-                                     {isPositive ? `รับ ${formatMoney(s.netBalance)}` : `จ่าย ${formatMoney(Math.abs(s.netBalance))}`}
-                                 </div>
-                              )}
-                              <div className="flex items-center gap-2 mb-3 mt-1">
-                                 <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
-                                 <span className="font-bold text-gray-700 text-sm">{u.name}</span>
-                              </div>
-                              <div className="space-y-1.5 text-xs text-gray-500">
-                                 <div className="flex justify-between"><span>ส่วนตัว/คนอื่นออกให้</span><span>{formatMoney(s.personal)}</span></div>
-                                 <div className="flex justify-between"><span>ส่วนแบ่งค่าใช้จ่าย</span><span>{formatMoney(s.cost - s.personal)}</span></div>
-                                 
-                                 {/* แสดงบรรทัดจ่ายผ่อน (ถ้ามี) */}
-                       {(s.installmentPayment > 0) && (
-                                    <div className="flex justify-between text-blue-600 font-bold bg-blue-50 px-1 rounded">
-                                       <span>จ่ายค่าผ่อนสินค้า</span>
-                                       <span>{formatMoney(s.installmentPayment)}</span>
-                                    </div>
-                                 )}
-                                 <div className={`border-t pt-1 mt-1 flex justify-between font-bold ${idx === 0 ? 'border-orange-100 text-orange-700' : 'border-blue-100 text-blue-700'}`}>
-                                    <span>รวมค่าใช้จ่าย</span><span>{formatMoney(displayCost)}</span>
-                                 </div>
-                                 <div className="flex justify-between text-gray-400"><span>จ่ายไปแล้ว</span><span>{formatMoney(displayPaid)}</span></div>
-                               </div>
-                           </div>
-                       );
-                    })}
-                 </div>
+      // ✅ เพิ่ม: หาชื่อคนจ่าย (Creditor) 
+      // (หา user คนที่ไม่ใช่ตัวเอง มาใส่ชื่อแทนคำว่า "คนอื่น")
+      const creditor = users.find(user => user.name !== u.name);
+      const creditorName = creditor ? creditor.name : 'คนอื่น';
+
+      return (
+          <div key={u.id} className={`rounded-xl p-3 border relative overflow-hidden ${currentUser?.name === u.name ? 'bg-yellow-50/50 border-yellow-200' : 'bg-white border-gray-100'}`}>
+            {Math.abs(s.netBalance) > 1 && (
+                <div className={`absolute top-0 right-0 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {isPositive ? `รับ ${formatMoney(s.netBalance)}` : `จ่าย ${formatMoney(Math.abs(s.netBalance))}`}
+                </div>
+            )}
+            <div className="flex items-center gap-2 mb-3 mt-1">
+                <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-orange-500' : 'bg-blue-500'}`}></div>
+                <span className="font-bold text-gray-700 text-sm">{u.name}</span>
+            </div>
+
+            <div className="space-y-1.5 text-xs text-gray-500">
+                
+                {/* 1. ค่าใช้จ่ายส่วนตัว */}
+                <div className="flex justify-between">
+                   <span>ค่าใช้จ่ายส่วนตัว</span>
+                   <span>{formatMoney(s.personal)}</span>
+                </div>
+
+                {/* 2. คนอื่นออกให้ (Dynamic Name) */}
+                {s.advanceDebt > 0 && (
+                   <div className="flex justify-between">
+                      {/* ✅ ใช้ตัวแปร creditorName แทนคำว่า คนอื่น */}
+                      <span>{creditorName}ออกให้ก่อน</span>
+                      <span>{formatMoney(s.advanceDebt)}</span>
+                   </div>
+                )}
+
+                {/* 3. ส่วนแบ่งค่าใช้จ่าย */}
+                <div className="flex justify-between">
+                   <span>ส่วนแบ่งค่าใช้จ่าย</span>
+                   <span>{formatMoney(s.cost - s.personal - (s.advanceDebt || 0))}</span>
+                </div>
+
+                {/* 4. จ่ายค่าผ่อนสินค้า */}
+                {(s.installmentPayment > 0) && (
+                   <div className="flex justify-between">
+                      <span>จ่ายค่าผ่อนสินค้า</span>
+                      <span>{formatMoney(s.installmentPayment)}</span>
+                   </div>
+                )}
+
+                <div className={`border-t pt-1 mt-1 flex justify-between font-bold ${idx === 0 ? 'border-orange-100 text-orange-700' : 'border-blue-100 text-blue-700'}`}>
+                   <span>รวมค่าใช้จ่าย</span><span>{formatMoney(displayCost)}</span>
+                </div>
+                
+                <div className="flex justify-between text-gray-400"><span>จ่ายไปแล้ว</span><span>{formatMoney(displayPaid)}</span></div>
+            </div>
+          </div>
+      );
+  })}
+</div>
               </div>
             </div>
 
@@ -1186,6 +1299,26 @@ const handleSubmit = (e) => {
 
             {activeTab === 'expenses' && (
                 <div className="space-y-3 mb-32">
+                <div className="relative mb-2">
+           <input 
+               type="text" 
+               placeholder="ค้นหาชื่อรายการ, หมายเหตุ..." 
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-sm transition-all"
+           />
+           <Search className="w-4 h-4 absolute left-3.5 top-3 text-gray-400" />
+           
+           {/* ปุ่มกากบาทเพื่อล้างคำค้นหา (แสดงเฉพาะตอนพิมพ์แล้ว) */}
+           {searchTerm && (
+               <button 
+                   onClick={() => setSearchTerm('')}
+                   className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 bg-gray-100 rounded-full p-0.5"
+               >
+                   <X className="w-3 h-3" />
+               </button>
+           )}
+       </div>
                    <FilterBar />
                    {displayedExpenses.length === 0 ? (
                       <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-300"><p>ไม่มีรายการในช่วงเวลานี้</p></div>
