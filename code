@@ -1,212 +1,131 @@
-// --- Code.gs ---
+{showAssetModal && (
+        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-[90] p-4 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                
+                <datalist id="existing-assets">
+                    {[...new Set(assets.map(a => a.name))].map((name, i) => <option key={i} value={name}/>)}
+                </datalist>
 
-function doGet() {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setTitle('ShareJai - แอปแชร์ค่าใช้จ่าย');
-}
+                {/* HEADER Clean Style */}
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
+                    <h3 className="font-bold text-lg text-indigo-800 flex items-center gap-2">
+                        <Plus className="w-5 h-5"/> เพิ่มทรัพย์สินใหม่
+                    </h3>
+                    <button onClick={() => setShowAssetModal(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto bg-slate-50 space-y-5">
+                    
+                    {/* 1. Owner Type Selector */}
+                    <div className="bg-white p-1 rounded-lg border border-gray-200 flex shadow-sm">
+                        <button onClick={() => setNewAssetItem({...newAssetItem, ownerType: 'Company'})} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all flex items-center justify-center gap-2 ${newAssetItem.ownerType === 'Company' ? 'bg-indigo-50 text-indigo-700 shadow-sm border border-indigo-100' : 'text-gray-500 hover:bg-gray-50'}`}><BriefcaseIcon className="w-4 h-4"/> ทรัพย์สินบริษัท</button>
+                        <button onClick={() => setNewAssetItem({...newAssetItem, ownerType: 'Rent'})} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all flex items-center justify-center gap-2 ${newAssetItem.ownerType === 'Rent' ? 'bg-orange-50 text-orange-700 shadow-sm border border-orange-100' : 'text-gray-500 hover:bg-gray-50'}`}><Clock className="w-4 h-4"/> ทรัพย์สินเช่า</button>
+                    </div>
 
-// ฟังก์ชันสร้างชีทและหัวตาราง (ถ้ายังไม่มี)
-function setupSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ['Expenses', 'Users', 'Categories', 'BudgetRules', 'Logs'];
-  
-  sheets.forEach(name => {
-    let sheet = ss.getSheetByName(name);
-    if (!sheet) {
-      sheet = ss.insertSheet(name);
-      if (name === 'Expenses') sheet.appendRow(['id', 'data']); 
-      if (name === 'Users') sheet.appendRow(['id', 'data']);
-      if (name === 'Categories') sheet.appendRow(['name']);
-      if (name === 'BudgetRules') sheet.appendRow(['id', 'data']);
-      if (name === 'Logs') sheet.appendRow(['id', 'data']);
-    }
-  });
-}
+                    {/* 2. Asset ID (+ Auto Gen) */}
+                    <div>
+                        <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-sm font-bold text-gray-700">รหัสทรัพย์สิน (Asset ID)</label>
+                            <label className="flex items-center gap-1.5 cursor-pointer bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                <input type="checkbox" className="accent-indigo-600 w-3.5 h-3.5" checked={newAssetItem.isAutoId} onChange={(e) => setNewAssetItem({...newAssetItem, isAutoId: e.target.checked, id: e.target.checked ? '' : newAssetItem.id})}/>
+                                <span className="text-xs font-bold text-indigo-700">Auto Gen</span>
+                            </label>
+                        </div>
+                        <input type="text" className={`w-full p-2.5 border rounded-xl font-mono text-sm ${newAssetItem.isAutoId ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white border-gray-300 focus:ring-2 focus:ring-indigo-500'}`} placeholder={newAssetItem.isAutoId ? "ระบบจะสร้างรหัสให้อัตโนมัติ" : "ระบุรหัส เช่น AST-001"} value={newAssetItem.id} disabled={newAssetItem.isAutoId} onChange={e => setNewAssetItem({...newAssetItem, id: e.target.value})} />
+                    </div>
 
-// --- Code.gs ---
+                    {/* 3. Name & Serial */}
+                    <div className="space-y-3">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1.5">ชื่อรายการ (Name)</label>
+                            <div className="relative">
+                                <input type="text" list="existing-assets" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="ระบุชื่อทรัพย์สิน..." value={newAssetItem.name} onChange={e => setNewAssetItem({...newAssetItem, name: e.target.value})}/>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1.5">Serial Number (S/N)</label>
+                            <input type="text" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={newAssetItem.serial} onChange={e => setNewAssetItem({...newAssetItem, serial: e.target.value})}/>
+                        </div>
+                    </div>
 
-function getInitialData() {
-  setupSheet(); 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // ฟังก์ชันช่วยอ่าน JSON จาก Sheet
-  const readJSON = (sheetName) => {
-    const sheet = ss.getSheetByName(sheetName);
-    const data = sheet.getDataRange().getValues();
-    if (data.length <= 1) return [];
-    return data.slice(1).map(row => {
-      try { return row[1] ? JSON.parse(row[1]) : null; } catch (e) { return null; }
-    }).filter(x => x);
-  };
+                    {/* 4. Price */}
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                        {newAssetItem.ownerType === 'Company' ? (
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1.5">ราคาซื้อ (Price)</label>
+                                <div className="relative">
+                                    <input type="number" className="w-full p-2.5 pl-3 pr-12 border border-gray-300 rounded-xl text-sm font-bold text-gray-800" value={newAssetItem.price} onChange={e => setNewAssetItem({...newAssetItem, price: parseFloat(e.target.value)||0})}/>
+                                    <span className="absolute right-4 top-2.5 text-sm text-gray-500">บาท</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1.5">ราคาเช่า</label>
+                                    <input type="number" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800" value={newAssetItem.rentalPrice} onChange={e => setNewAssetItem({...newAssetItem, rentalPrice: parseFloat(e.target.value)||0})}/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1.5">หน่วย</label>
+                                    <select className="w-full p-2.5 border border-gray-300 rounded-xl text-sm bg-gray-50" value={newAssetItem.rentalUnit} onChange={e => setNewAssetItem({...newAssetItem, rentalUnit: e.target.value})}>
+                                        <option value="Day">บาท / วัน</option>
+                                        <option value="Month">บาท / เดือน</option>
+                                        <option value="Year">บาท / ปี</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
-  // ดึงหมวดหมู่
-  const catSheet = ss.getSheetByName('Categories');
-  let cats = [];
-  if (catSheet) {
-    cats = catSheet.getDataRange().getValues().slice(1).map(r => r[0]).filter(x => x);
-  }
+                    {/* 5. Condition & Images (UPDATED UI) */}
+                    <div>
+                        <div className="mb-4">
+                            <label className="block text-sm font-bold text-gray-700 mb-1.5">สภาพ (Condition)</label>
+                            <select className="w-full p-2.5 border border-gray-300 rounded-xl text-sm bg-white" value={newAssetItem.condition} onChange={e => setNewAssetItem({...newAssetItem, condition: e.target.value})}>
+                                <option value="Good">Good (ดี)</option>
+                                <option value="Fair">Fair (พอใช้)</option>
+                                <option value="Damaged">Damaged (ชำรุด)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">รูปภาพ ({newAssetItem.images.length})</label>
+                            
+                            <div className="grid grid-cols-4 gap-2">
+                                {/* Image Previews */}
+                                {newAssetItem.images.map((img, idx) => (
+                                    <div key={idx} className="relative group w-full h-20 bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                                        <img src={img.base64} alt="preview" className="w-full h-full object-cover" />
+                                        {/* Delete Button */}
+                                        <button 
+                                            onClick={() => handleRemoveAssetImage(idx, false)}
+                                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                                            title="ลบรูป"
+                                        >
+                                            <X size={12}/>
+                                        </button>
+                                    </div>
+                                ))}
 
-  // สร้างหมวดหมู่ Default ถ้ายังไม่มี
-  if (cats.length === 0) {
-    cats = ['ทั่วไป', 'อาหาร', 'เดินทาง', 'น้ำมัน', 'เครื่องดื่ม', 'บันเทิง', 'ค่าน้ำค่าไฟ', 'ค่าบ้าน', 'ค่ารถ'];
-    const cSheet = ss.getSheetByName('Categories');
-    if(cSheet) cats.forEach(c => cSheet.appendRow([c]));
-  }
+                                {/* Add Button */}
+                                <label className="cursor-pointer flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-indigo-300 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:border-indigo-400 transition-all">
+                                    <Camera className="w-6 h-6 mb-1"/>
+                                    <span className="text-[10px] font-bold">เพิ่มรูป</span>
+                                    <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleAssetImageSelect(e, false)}/>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
 
-  // ดึง Users
-  let users = readJSON('Users');
-  if (users.length === 0) {
-    users = [
-      { id: 1, name: 'คุณเจ', email: 'jay@example.com', role: 'Admin' },
-      { id: 2, name: 'คุณนี', email: 'nee@example.com', role: 'Member' }
-    ];
-    saveUsers(users);
-  }
+                </div>
 
-  // ✅ เพิ่มบรรทัดนี้: ดึงอีเมลของคนที่กำลังใช้งาน App จริงๆ
-  const activeEmail = Session.getActiveUser().getEmail();
-
-  // ส่งข้อมูลกลับไปที่หน้าบ้าน (รวม activeEmail)
-  return {
-    users: users,
-    categories: cats,
-    expenses: readJSON('Expenses'),
-    budgetRules: readJSON('BudgetRules'),
-    logs: readJSON('Logs'),
-    activeEmail: activeEmail // <--- สำคัญมากสำหรับระบบ Login
-  };
-}
-
-// --- Code.gs : ฟังก์ชัน saveTransaction (ฉบับแก้รูปไม่ขึ้น V.Final) ---
-
-function saveTransaction(expense) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName('Expenses');
-    if (!sheet) { setupSheet(); sheet = ss.getSheetByName('Expenses'); }
-
-    // ✅ ระบบอัปโหลดรูปขึ้น Google Drive
-    if (expense.attachments && expense.attachments.length > 0) {
-      const folderName = "ShareJai_Attachments";
-      const folders = DriveApp.getFoldersByName(folderName);
-      let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-
-      expense.attachments = expense.attachments.map(att => {
-        // ถ้าเป็นไฟล์ใหม่ (มี Base64 data) ให้อัปโหลด
-        if (att.data && att.data.includes("base64,")) {
-          try {
-            const contentType = att.data.split(',')[0].split(':')[1].split(';')[0];
-            const base64Data = att.data.split(',')[1];
-            const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), contentType, att.name);
-            
-            const file = folder.createFile(blob);
-            file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-            const fileId = file.getId();
-            
-            // ✅ จุดที่แก้ไข: แยกประเภทลิงก์เพื่อให้รูปขึ้นแน่นอน
-            let viewUrl;
-            if (att.type.startsWith('image/')) {
-               viewUrl = "https://lh3.googleusercontent.com/d/" + fileId;
-            } else {
-               viewUrl = "https://drive.google.com/file/d/" + fileId + "/view?usp=sharing";
-            }
-
-            return {
-              name: att.name,
-              type: att.type,
-              url: viewUrl, 
-              id: fileId
-            };
-          } catch (e) {
-            return { name: att.name, type: att.type, error: "Upload Failed" };
-          }
-        }
-        // ถ้าเป็นไฟล์เก่าที่มี URL อยู่แล้ว ให้ใช้ค่าเดิม
-        return att;
-      });
-    }
-
-    const data = sheet.getDataRange().getValues();
-    let rowIndex = -1;
-    
-    // ค้นหา ID เดิมเพื่อแก้ไข
-    for (let i = 1; i < data.length; i++) {
-      try {
-        if (data[i][1]) {
-           const item = JSON.parse(data[i][1]);
-           if (item && item.id == expense.id) {
-             rowIndex = i + 1;
-             break;
-           }
-        }
-      } catch (e) { continue; }
-    }
-
-    const json = JSON.stringify(expense);
-
-    if (rowIndex > 0) {
-      sheet.getRange(rowIndex, 2).setValue(json);
-    } else {
-      sheet.appendRow([expense.id, json]);
-    }
-    return "Success";
-  } catch (err) {
-    throw new Error(err.message);
-  }
-}
-function deleteTransaction(id) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Expenses');
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    try {
-      if (data[i][1] && JSON.parse(data[i][1]).id == id) {
-        sheet.deleteRow(i + 1);
-        break;
-      }
-    } catch(e) { continue; }
-  }
-}
-
-function saveLog(log) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Logs');
-  if (!sheet) { setupSheet(); sheet = ss.getSheetByName('Logs'); }
-  sheet.appendRow([log.id, JSON.stringify(log)]);
-}
-
-function saveUsers(users) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Users');
-  sheet.clearContents();
-  sheet.appendRow(['id', 'data']);
-  users.forEach(u => sheet.appendRow([u.id, JSON.stringify(u)]));
-}
-
-function saveCategory(newCat) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ss.getSheetByName('Categories').appendRow([newCat]);
-}
-
-function deleteCategory(catName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('Categories');
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] == catName) {
-      sheet.deleteRow(i + 1);
-      break;
-    }
-  }
-}
-
-function saveBudgetRules(rules) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('BudgetRules');
-  sheet.clearContents();
-  sheet.appendRow(['id', 'data']);
-  rules.forEach(r => sheet.appendRow([r.id, JSON.stringify(r)]));
-}
+                {/* Footer */}
+                <div className="p-5 border-t border-gray-100 bg-white">
+                    <button onClick={handleAddAsset} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-md flex items-center justify-center gap-2 transition-transform active:scale-95">
+                        <Save className="w-5 h-5"/> บันทึกข้อมูล
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
