@@ -202,16 +202,19 @@ const email = data.activeEmail;
         return null;
       };
 
-      const resetForm = () => {
-        setFormData({
-          title: '', amount: '', payer: currentUser ? currentUser.name : '', 
-          type: 'shared', split: 50, category: categories[0] || 'ทั่วไป', 
-          note: '', date: new Date().toISOString().split('T')[0], 
-          attachments: [], months: 10, relatedInstallments: [] // ✅ Reset ค่าใหม่
-        });
-        setEditingId(null);
-        setSelectedCycles([]); // Reset การเลือกเคลียร์ยอดค้าง
-      };
+   const resetForm = () => {
+  setFormData({
+    title: '', amount: '', payer: currentUser ? currentUser.name : '', 
+    type: 'shared', split: 50, category: categories[0] || 'ทั่วไป', 
+    note: '', date: new Date().toISOString().split('T')[0], 
+    attachments: [], months: 10, relatedInstallments: [], 
+    clearPreviousDebt: false // ✅ เพิ่ม flag สำหรับเคลียร์หนี้เก่า
+  });
+  setEditingId(null);
+  setSelectedCycles([]); // Reset การเลือกเคลียร์ยอดค้าง
+};
+
+
       const handleFileChange = async (e) => {
         const files = Array.from(e.target.files);
         const newAttachments = await Promise.all(files.map(file => {
@@ -293,38 +296,39 @@ const calculation = useMemo(() => {
         }
         
         const cycle = cyclesData[cycleName];
-        const val = parseFloat(exp.amount);
-        const payerName = exp.payer;
+ const val = parseFloat(exp.amount);
+const payerName = exp.payer;
 
-        // ข้ามรายการตั้งต้นผ่อนชำระ
-        if (exp.type === 'installment') return;
+// ✅ ข้ามรายการตั้งต้นผ่อนชำระ (ไม่นำมาคิดเลย)
+if (exp.type === 'installment') return;
 
-        // --- Logic การโอนเงิน (Transfer) ---
-        if (exp.type === 'transfer') {
-            // กรณีจ่ายค่าผ่อน (มี relatedId)
-            if (exp.relatedId) {
-                // บันทึกแค่ว่าจ่ายแล้ว (เพื่อให้กราฟแท่งขยับ)
-                if (cycle.stats[payerName]) {
-                    cycle.stats[payerName].installmentPayment = (cycle.stats[payerName].installmentPayment || 0) + val;
-                }
-                // ✅ return ออกเลย เพื่อ "ไม่ให้นำไปคิดใน Net Balance" (แยกกระเป๋า)
-                return; 
-            }
-
-            // กรณีโอนคืนปกติ
-            const receiver = users.find(u => u.name !== payerName)?.name;
-            if (receiver) {
-               cycle.stats[payerName].transferOut += val;
-               cycle.stats[receiver].transferIn += val;
-            }
-            return;
+// ✅ --- Logic การโอนเงิน (Transfer) --- ต้องเช็คก่อนทุกอย่าง
+if (exp.type === 'transfer') {
+    // กรณีจ่ายค่าผ่อน (มี relatedId)
+    if (exp.relatedId) {
+        // บันทึกแค่ว่าจ่ายแล้ว (เพื่อให้กราฟแท่งขยับ)
+        if (cycle.stats[payerName]) {
+            cycle.stats[payerName].installmentPayment = (cycle.stats[payerName].installmentPayment || 0) + val;
         }
+        // ✅ return ออกเลย เพื่อ "ไม่ให้นำไปคิดใน Net Balance" (แยกกระเป๋า)
+        return; 
+    }
 
-        // --- Logic รายการใช้จ่ายทั่วไป ---
-        if (cycle.stats[payerName]) cycle.stats[payerName].paid += val;
+    // กรณีโอนคืนปกติ (ไม่มี relatedId)
+    const receiver = users.find(u => u.name !== payerName)?.name;
+    if (receiver) {
+       cycle.stats[payerName].transferOut += val;
+       cycle.stats[receiver].transferIn += val;
+    }
+    // ✅ return ออกเลย ไม่ให้ไปคิดใน categoryTotals
+    return;
+}
 
-        // เก็บยอดรวมหมวดหมู่ (เพื่อเอาไปเช็ค Budget Rule ทีหลัง)
-        cycle.categoryTotals[exp.category] = (cycle.categoryTotals[exp.category] || 0) + val;
+// --- Logic รายการใช้จ่ายทั่วไป (ถึงตรงนี้แปลว่าไม่ใช่ installment และไม่ใช่ transfer) ---
+if (cycle.stats[payerName]) cycle.stats[payerName].paid += val;
+
+// ✅ เก็บยอดรวมหมวดหมู่ (เฉพาะรายการใช้จ่ายจริง ไม่รวม transfer)
+cycle.categoryTotals[exp.category] = (cycle.categoryTotals[exp.category] || 0) + val;
         
         // เก็บยอดว่าใครจ่ายหมวดนี้ไปเท่าไหร่ (สำหรับ Logic จ่ายเกิน)
         if (!cycle.categoryPaid[exp.category]) cycle.categoryPaid[exp.category] = {};
@@ -639,7 +643,7 @@ const debtsByCycle = useMemo(() => {
       };
 
 const handleInputChange = (e) => {
-        const { name, value } = e.target;
+  const { name, value, type, checked } = e.target;
         
         if (name === 'title') {
            let suggestedCategory = null;
@@ -686,10 +690,13 @@ const handleInputChange = (e) => {
                setFormData(prev => ({ ...prev, [name]: value }));
            }
 
-        } else {
-            // กรณีเปลี่ยน field อื่น
-            setFormData(prev => ({ ...prev, [name]: value }));
-        }
+        } else if (type === 'checkbox') {
+    // ✅ จัดการ checkbox สำหรับเคลียร์หนี้เก่า
+    setFormData(prev => ({ ...prev, [name]: checked }));
+} else {
+    // กรณีเปลี่ยน field อื่น
+    setFormData(prev => ({ ...prev, [name]: value }));
+}
       };
 
 const handleSubmit = (e) => {
@@ -1571,46 +1578,100 @@ const displayedExpenses = useMemo(() => {
       )}
    </div>
 )}
-
 {/* ส่วนเลือกรายการผ่อนที่จะจ่าย (แสดงเมื่อเลือก โอนคืน) */}
-{formData.type === 'transfer' && activeInstallments && activeInstallments.length > 0 && (
-   <div className="mb-4 animate-in slide-in-from-top-2">
-      <label className="text-xs font-bold text-gray-500 mb-2 block">เลือกรายการผ่อนที่จะจ่ายรอบนี้</label>
-      <div className="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200">
-         {activeInstallments.map(inst => {
-            const paid = installmentProgress[inst.id] || 0;
-            const perMonth = inst.amount / inst.months;
-            const isSelected = formData.relatedInstallments && formData.relatedInstallments.some(x => x.id === inst.id);
-            
-            return (
-               <div key={inst.id} 
-                  onClick={() => {
-                     let newRelated;
-                     const currentAmount = parseFloat(formData.amount) || 0;
-                     if (isSelected) {
-                        newRelated = formData.relatedInstallments.filter(x => x.id !== inst.id);
-                        setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount - perMonth }));
+{formData.type === 'transfer' && (
+   <div className="mb-4 space-y-3">
+      {/* ✅ เพิ่ม: ส่วนเคลียร์หนี้เก่า */}
+      {formData.payer && calculation.adjustedPrevStats[formData.payer]?.netBalance < -1 && (
+         <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 animate-in slide-in-from-top-2">
+            <div className="flex items-start gap-3">
+               <input 
+                  type="checkbox"
+                  name="clearPreviousDebt"
+                  checked={formData.clearPreviousDebt || false}
+                  onChange={(e) => {
+                     const isChecked = e.target.checked;
+                     const debtAmount = Math.abs(calculation.adjustedPrevStats[formData.payer].netBalance);
+                     
+                     if (isChecked) {
+                        // เมื่อติ๊ก: ใส่ยอดหนี้เข้าไป
+                        setFormData(prev => ({
+                           ...prev,
+                           clearPreviousDebt: true,
+                           amount: (parseFloat(prev.amount) || 0) + debtAmount,
+                           note: prev.note ? `${prev.note} | เคลียร์หนี้เก่า ${formatMoney(debtAmount)}` : `เคลียร์หนี้เก่า ${formatMoney(debtAmount)}`
+                        }));
                      } else {
-                        newRelated = [...(formData.relatedInstallments || []), inst];
-                        setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount + perMonth }));
+                        // เมื่อเอาติ๊กออก: หักยอดหนี้ออก
+                        setFormData(prev => ({
+                           ...prev,
+                           clearPreviousDebt: false,
+                           amount: Math.max(0, (parseFloat(prev.amount) || 0) - debtAmount),
+                           note: prev.note.replace(` | เคลียร์หนี้เก่า ${formatMoney(debtAmount)}`, '').replace(`เคลียร์หนี้เก่า ${formatMoney(debtAmount)}`, '')
+                        }));
                      }
                   }}
-                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-orange-100 border-orange-300 ring-1 ring-orange-300' : 'bg-white border-gray-200 hover:border-orange-200'}`}
-               >
-                  <div className="flex items-center gap-3">
-                     <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${isSelected ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
-                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                  className="mt-1 w-5 h-5 text-red-600 rounded border-red-300 focus:ring-red-500 cursor-pointer"
+               />
+               <div className="flex-1">
+                  <label className="text-sm font-bold text-red-700 flex items-center gap-2 cursor-pointer">
+                     <AlertTriangle className="w-4 h-4" />
+                     เคลียร์ยอดค้างรอบก่อน
+                  </label>
+                  <p className="text-xs text-red-600 mt-1">
+                     ยอดค้าง: <span className="font-bold">{formatMoney(Math.abs(calculation.adjustedPrevStats[formData.payer].netBalance))}</span>
+                  </p>
+                  {formData.clearPreviousDebt && (
+                     <div className="mt-2 bg-white/50 rounded-lg p-2 text-xs text-red-700 border border-red-200">
+                        ✓ ยอดค้างจะถูกรวมเข้าในการโอนครั้งนี้
                      </div>
-                     <div>
-                        <p className="text-xs font-bold text-gray-700">{inst.title}</p>
-                        <p className="text-[10px] text-gray-400">งวดที่ {paid + 1}/{inst.months}</p>
-                     </div>
-                  </div>
-                  <span className="text-sm font-bold text-gray-800">{formatMoney(perMonth)}</span>
+                  )}
                </div>
-            );
-         })}
-      </div>
+            </div>
+         </div>
+      )}
+
+      {/* ส่วนเลือกรายการผ่อน (เหมือนเดิม) */}
+      {activeInstallments && activeInstallments.length > 0 && (
+         <div className="animate-in slide-in-from-top-2">
+            <label className="text-xs font-bold text-gray-500 mb-2 block">เลือกรายการผ่อนที่จะจ่ายรอบนี้</label>
+            <div className="space-y-2 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded-xl border border-gray-200">
+               {activeInstallments.map(inst => {
+                  const paid = installmentProgress[inst.id] || 0;
+                  const perMonth = inst.amount / inst.months;
+                  const isSelected = formData.relatedInstallments && formData.relatedInstallments.some(x => x.id === inst.id);
+                  
+                  return (
+                     <div key={inst.id} 
+                        onClick={() => {
+                           let newRelated;
+                           const currentAmount = parseFloat(formData.amount) || 0;
+                           if (isSelected) {
+                              newRelated = formData.relatedInstallments.filter(x => x.id !== inst.id);
+                              setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount - perMonth }));
+                           } else {
+                              newRelated = [...(formData.relatedInstallments || []), inst];
+                              setFormData(prev => ({ ...prev, relatedInstallments: newRelated, amount: currentAmount + perMonth }));
+                           }
+                        }}
+                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-orange-100 border-orange-300 ring-1 ring-orange-300' : 'bg-white border-gray-200 hover:border-orange-200'}`}
+                     >
+                        <div className="flex items-center gap-3">
+                           <div className={`w-5 h-5 rounded flex items-center justify-center border transition-colors ${isSelected ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                           </div>
+                           <div>
+                              <p className="text-xs font-bold text-gray-700">{inst.title}</p>
+                              <p className="text-[10px] text-gray-400">งวดที่ {paid + 1}/{inst.months}</p>
+                           </div>
+                        </div>
+                        <span className="text-sm font-bold text-gray-800">{formatMoney(perMonth)}</span>
+                     </div>
+                  );
+               })}
+            </div>
+         </div>
+      )}
    </div>
 )}
 
