@@ -229,22 +229,26 @@ const email = data.activeEmail;
         setFormData(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
       };
 
-      const getCycleRange = (dateInput) => {
+const getCycleRange = (dateInput) => {
         const date = new Date(dateInput);
         const day = date.getDate();
         const month = date.getMonth();
         const year = date.getFullYear();
         let startDate, endDate, cycleName;
-        if (day >= 5) {
-          startDate = new Date(year, month, 5);
-          endDate = new Date(year, month + 1, 4, 23, 59, 59); 
+
+        // เปลี่ยนเงื่อนไขจาก 5 เป็น 20
+        if (day >= 20) {
+          startDate = new Date(year, month, 20); // เริ่มวันที่ 20
+          endDate = new Date(year, month + 1, 19, 23, 59, 59); // จบวันที่ 19 ของเดือนถัดไป
           const nextMonthDate = new Date(year, month + 1, 1);
-          cycleName = `รอบ 5 ${date.toLocaleString('th-TH', { month: 'short' })} - 4 ${nextMonthDate.toLocaleString('th-TH', { month: 'short' })}`;
+          // แก้ไขชื่อรอบ
+          cycleName = `รอบ 20 ${date.toLocaleString('th-TH', { month: 'short' })} - 19 ${nextMonthDate.toLocaleString('th-TH', { month: 'short' })}`;
         } else {
-          startDate = new Date(year, month - 1, 5);
-          endDate = new Date(year, month, 4, 23, 59, 59); 
+          startDate = new Date(year, month - 1, 20); // เริ่มวันที่ 20 เดือนก่อน
+          endDate = new Date(year, month, 19, 23, 59, 59); // จบวันที่ 19 เดือนปัจจุบัน
           const prevMonthDate = new Date(year, month - 1, 1);
-          cycleName = `รอบ 5 ${prevMonthDate.toLocaleString('th-TH', { month: 'short' })} - 4 ${date.toLocaleString('th-TH', { month: 'short' })}`;
+          // แก้ไขชื่อรอบ
+          cycleName = `รอบ 20 ${prevMonthDate.toLocaleString('th-TH', { month: 'short' })} - 19 ${date.toLocaleString('th-TH', { month: 'short' })}`;
         }
         return { startDate, endDate, cycleName };
       };
@@ -965,7 +969,7 @@ const displayedExpenses = useMemo(() => {
                  <div className="flex items-center bg-white/10 rounded-lg backdrop-blur-sm">
                     <button onClick={() => changeCycle(-1)} className="p-2 hover:bg-white/10 rounded-l-lg transition-colors"><ChevronLeft className="w-4 h-4"/></button>
                     <div className="px-2 text-center">
-                        <span className="text-[10px] font-medium block text-orange-50">รอบบัญชี (ตัดทุกวันที่ 5)</span>
+                        <span className="text-[10px] font-medium block text-orange-50">รอบบัญชี (ตัดทุกวันที่ 20)</span>
                        <span className="text-xs font-bold block min-w-[120px]">{currentCycleInfo.cycleName}</span>
                     </div>
                     <button onClick={() => changeCycle(1)} className="p-2 hover:bg-white/10 rounded-r-lg transition-colors"><ChevronRight className="w-4 h-4"/></button>
