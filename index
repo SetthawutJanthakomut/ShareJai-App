@@ -480,8 +480,8 @@ const calculation = useMemo(() => {
         // (เพื่อให้กล่อง "ยอดค้างรอบก่อน" ลดลงเมื่อมีการโอนคืนในเดือนนี้)
         const currentTransferNet = currentStats[u.name].transferOut - currentStats[u.name].transferIn;
         adjustedPrevStats[u.name] = {
-            netBalance: previousStats[u.name].netBalance + currentTransferNet
-        };
+    netBalance: previousStats[u.name].netBalance 
+};
     });
 
     return { totalShared, splitAmount: totalShared / users.length, stats: currentStats, prevStats: previousStats, globalStats, adjustedPrevStats, budgetStatus, sortedCategories };
@@ -1634,7 +1634,7 @@ const displayedExpenses = useMemo(() => {
                       </div>
                     )}
                     
-{/* 1. ส่วนจำนวนเงิน (แก้ไข Logic Max Limit) */}
+{/* 1. ส่วนจำนวนเงิน */}
    <div>
       <label className="text-xs font-bold text-gray-500 mb-1 block text-center">ระบุจำนวนเงิน</label>
       <div className="relative">
@@ -1642,43 +1642,16 @@ const displayedExpenses = useMemo(() => {
             type="number" 
             name="amount" 
             value={formData.amount} 
-            max={
-               formData.type === 'transfer' && formData.payer && calculation.adjustedPrevStats[formData.payer]
-               ? (() => {
-                  // 1. หายอดหนี้คงเหลือเดิม (Existing Debt)
-                  let currentNet = calculation.adjustedPrevStats[formData.payer].netBalance;
-                  
-                  // กรณีแก้ไข: ให้บวกยอดเดิมกลับเข้าไปก่อน เพื่อหาหนี้ที่แท้จริง
-                  if (editingId) {
-                     const originalItem = expenses.find(e => e.id === editingId);
-                     if (originalItem && originalItem.type === 'transfer' && originalItem.payer === formData.payer) {
-                        currentNet -= originalItem.amount;
-                     }
-                  }
-                  
-                  // แปลงเป็นยอดหนี้ (ถ้าติดลบ = เป็นหนี้, ถ้าบวก = 0)
-                  const debtAmount = currentNet < 0 ? Math.abs(currentNet) : 0;
-
-                  // 2. หายอดผ่อนที่เลือกไว้ (Installment Amount)
-                  let installmentTotal = 0;
-                  if (formData.relatedInstallments && formData.relatedInstallments.length > 0) {
-                      installmentTotal = formData.relatedInstallments.reduce((sum, item) => sum + (item.amount / item.months), 0);
-                  }
-
-                  // 3. เอา "หนี้เก่า" + "ค่าผ่อนรอบนี้" มารวมกันเป็น Max Limit
-                  return debtAmount + installmentTotal;
-               })()
-               : undefined
-            }
+            /* ❌ ลบส่วน max={...} ออกทั้งหมด เพื่อไม่ให้จำกัดยอดเงิน ❌ */
             onChange={handleInputChange} 
             className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-center font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all placeholder-gray-400" 
             placeholder="0.00" 
             required 
-         />
+          />
          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">THB</span>
       </div>
       
-      {/* แจ้งเตือนยอดหนี้ (ถ้ามี) */}
+      {/* แจ้งเตือนยอดหนี้ (ถ้ามี) ยังคงแสดงได้เหมือนเดิมเพื่อให้รู้ยอดที่ควรโอน */}
       {formData.type === 'transfer' && formData.payer && calculation.adjustedPrevStats[formData.payer]?.netBalance < 0 && (
          <div className="mt-2 bg-red-50 border border-red-100 rounded-lg p-2 flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-2">
             <AlertTriangle className="w-4 h-4 text-red-500" />
