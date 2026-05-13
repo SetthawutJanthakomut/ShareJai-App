@@ -85,57 +85,6 @@
       const [showBudgetConfig, setShowBudgetConfig] = useState(false);
       const [budgetRules, setBudgetRules] = useState([]);
 
-
-
-const exportToCSV = () => {
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run.withSuccessHandler((allExpenses) => {
-        // ✅ เพิ่มหัวตาราง "จำนวนเดิม" ไว้ท้ายสุด
-        const headers = ["วันที่", "ชื่อรายการ", "จำนวนเงิน (ที่หารแล้ว)", "ประเภท", "%การหาร", "หมวดหมู่", "คนจ่ายเงิน", "หมายเหตุ", "จำนวนเดิม (ยอดเต็ม)"];
-        
-        const rows = allExpenses.map(exp => {
-          const d = new Date(exp.date);
-          const dateStr = d.toLocaleDateString('th-TH');
-          const typeMap = {
-            'shared': 'หารกัน',
-            'personal': 'ส่วนตัว',
-            'advance': 'ออกให้',
-            'installment': 'ผ่อนชำระ',
-            'transfer': 'โอนเงิน'
-          };
-          
-          // ✅ คำนวณยอดเงินตาม % (เฉพาะรายการหารกัน)
-          let calculatedAmount = parseFloat(exp.amount || 0);
-          if (exp.type === 'shared' && exp.split) {
-             calculatedAmount = calculatedAmount * (parseFloat(exp.split) / 100);
-          }
-
-          return [
-            `"${dateStr}"`,
-            `"${exp.title || ''}"`,
-            `"${calculatedAmount.toFixed(2)}"`, // ✅ Col C: ยอดที่คิด % แล้ว
-            `"${typeMap[exp.type] || exp.type}"`,
-            `"${exp.type === 'shared' ? exp.split + '%' : '-'}"`,
-            `"${exp.category || ''}"`,
-            `"${exp.payer || ''}"`,
-            `"${(exp.note || '').replace(/"/g, '""')}"`,
-            `"${parseFloat(exp.amount || 0).toFixed(2)}"` // ✅ Col I: ยอดเต็ม (จำนวนเดิม)
-          ];
-        });
-
-        const csvContent = "\uFEFF" + [headers, ...rows].map(e => e.join(",")).join("\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.setAttribute("download", `ShareJai_Export_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }).getAllExpensesForExport();
-    }
-  };
-
-
       const [formData, setFormData] = useState({
         title: '', amount: '', payer: '', type: 'shared', split: 50, 
         category: 'ทั่วไป', note: '', date: new Date().toISOString().split('T')[0], 
@@ -159,8 +108,6 @@ const exportToCSV = () => {
       const [isBudgetExpanded, setIsBudgetExpanded] = useState(false);
       const [isCategoryExpanded, setIsCategoryExpanded] = useState(false);
 
-
-
       useEffect(() => {
         if (typeof google !== 'undefined' && google.script) {
           google.script.run.withSuccessHandler((data) => {
@@ -169,9 +116,6 @@ const exportToCSV = () => {
             setExpenses(data.expenses);
             setBudgetRules(data.budgetRules);
             setLogs(data.logs);
-
-
-      
 
 const email = data.activeEmail;
             setMyEmail(email);
@@ -1043,27 +987,15 @@ const displayedExpenses = useMemo(() => {
 
           <div className="max-w-2xl mx-auto px-4 -mt-20 relative z-10">
             
-<div className="bg-white rounded-3xl p-6 shadow-xl mb-6">
-  <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
-     <h2 className="text-gray-800 font-bold text-lg flex items-center gap-2">
-       <Calculator className="w-5 h-5 text-orange-500" /> สรุปยอดสุทธิ
-     </h2>
-     <div className="flex gap-2"> 
-        <button 
-          onClick={() => setShowBudgetConfig(!showBudgetConfig)} 
-          className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-orange-100 font-medium"
-        >
-          <Settings className="w-3 h-3" /> ตั้งงบ
-        </button>
-
-        <button 
-          onClick={exportToCSV} 
-          className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-blue-100 font-medium"
-        >
-          <FileText className="w-3 h-3" /> Export CSV
-        </button>
-     </div>
-  </div>
+            <div className="bg-white rounded-3xl p-6 shadow-xl mb-6">
+              <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+                 <h2 className="text-gray-800 font-bold text-lg flex items-center gap-2">
+                   <Calculator className="w-5 h-5 text-orange-500" /> สรุปยอดสุทธิ
+                 </h2>
+                 <button onClick={() => setShowBudgetConfig(!showBudgetConfig)} className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-orange-100 font-medium">
+                   <Settings className="w-3 h-3" /> ตั้งงบ
+                 </button>
+              </div>
 
 {/* Previous Cycle Balance (แก้ไข: ใช้ adjustedPrevStats เพื่อให้ยอดลดลงเมื่อโอนคืน) */}
               {users.length >= 2 && Math.abs(calculation.adjustedPrevStats[users[0].name]?.netBalance) > 1 && (
