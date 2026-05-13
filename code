@@ -210,3 +210,141 @@ function saveBudgetRules(rules) {
   sheet.appendRow(['id', 'data']);
   rules.forEach(r => sheet.appendRow([r.id, JSON.stringify(r)]));
 }
+
+
+// --- เพิ่มใน Code.gs ---
+function getAllExpensesForExport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Expenses');
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  return data.slice(1).map(row => {
+    try { 
+      return row[1] ? JSON.parse(row[1]) : null; 
+    } catch (e) { 
+      return null; 
+    }
+  }).filter(x => x);
+}
+
+function syncToExternalSheet() {
+  const targetSpreadsheetId = '1iTOAh7B3xCS5pd4vIUd4yb5T1e1_xtSpLq7uVUj7q20'; // ID ปลายทาง
+  const targetSheetName = 'data'; 
+
+  // 1. ดึงข้อมูลต้นฉบับจาก App (Expenses)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const srcSheet = ss.getSheetByName('Expenses');
+  if (!srcSheet) return;
+
+  const srcData = srcSheet.getDataRange().getValues();
+  // แปลงข้อมูลจาก JSON ใน Column B
+  const sourceExpenses = srcData.slice(1).map(row => {
+    try { return row[1] ? JSON.parse(row[1]) : null; } catch (e) { return null; }
+  }).filter(x => x);
+
+  // สร้าง Map ของข้อมูลต้นฉบับ เพื่อให้ค้นหาด้วย ID ง่ายๆ
+  const sourceMap = new Map();
+  sourceExpenses.forEach(exp => {
+      const d = new Date(exp.date);
+      const dateStr = Utilities.formatDate(d, "Asia/Bangkok", "dd/MM/yyyy");
+      
+      const typeMap = {
+        'shared': 'หารกัน',
+        'personal': 'ส่วนตัว',
+        'advance': 'ออกให้',
+        'installment': 'ผ่อนชำระ',
+        'transfer': 'โอนเงิน'
+      };
+
+      let calculatedAmount = parseFloat(exp.amount || 0);
+      if (exp.type === 'shared' && exp.split) {
+         calculatedAmount = calculatedAmount * (parseFloat(exp.split) / 100);
+      }
+
+      // เตรียมข้อมูล A-J (10 ช่อง)
+      const rowData = [
+        String(exp.id),                           // A: id
+        dateStr,                                  // B: วันที่
+        exp.title || '',                          // C: ชื่อรายการ
+        calculatedAmount,                         // D: จำนวนเงิน (ที่หารแล้ว)
+        parseFloat(exp.amount || 0),              // E: จำนวนเดิม (ยอดเต็ม)
+        typeMap[exp.type] || exp.type,            // F: ประเภท
+        exp.type === 'shared' ? exp.split + '%' : '-', // G: %การหาร
+        exp.category || '',                       // H: หมวดหมู่
+        exp.payer || '',                          // I: คนจ่ายเงิน
+        exp.note || ''                            // J: หมายเหตุ
+      ];
+      
+      sourceMap.set(String(exp.id), rowData);
+  });
+
+  // 2. เชื่อมต่อกับ Sheet ปลายทาง
+  try {
+    const targetSS = SpreadsheetApp.openById(targetSpreadsheetId);
+    let targetSheet = targetSS.getSheetByName(targetSheetName);
+    
+    if (!targetSheet) {
+      targetSheet = targetSS.insertSheet(targetSheetName);
+    }
+
+    // เช็คหัวตาราง
+    const headers = ['id', 'วันที่', 'ชื่อรายการ', 'จำนวนเงิน (ที่หารแล้ว)', 'จำนวนเดิม (ยอดเต็ม)', 'ประเภท', '%การหาร', 'หมวดหมู่', 'คนจ่ายเงิน', 'หมายเหตุ', 'สถานะ'];
+    if (targetSheet.getLastRow() === 0) {
+      targetSheet.appendRow(headers);
+    }
+
+    // 3. อ่านข้อมูลเก่าในปลายทาง (รวมถึงสถานะใน Col K)
+    const targetLastRow = targetSheet.getLastRow();
+    let targetData = [];
+    if (targetLastRow > 1) {
+      targetData = targetSheet.getRange(2, 1, targetLastRow - 1, 11).getValues(); // อ่านถึง Col K (11)
+    }
+
+    // 4. ประมวลผลรวมข้อมูล (Merge)
+    const finalRows = [];
+    const processedIds = new Set();
+
+    // 4.1 วนลูปข้อมูลเก่าในปลายทาง: เพื่อ Update หรือ Delete
+    targetData.forEach(row => {
+      const id = String(row[0]); // ID เดิม
+      const currentStatus = row[10]; // สถานะเดิม (Col K)
+
+      if (sourceMap.has(id)) {
+        // CASE: มีทั้งเก่าและใหม่ -> อัปเดตข้อมูล A-J แต่เก็บ Status เดิมไว้
+        const newInfo = sourceMap.get(id);
+        finalRows.push([...newInfo, currentStatus]); // เอาข้อมูลใหม่ + สถานะเดิม
+        processedIds.add(id);
+      } else {
+        // CASE: ต้นทางไม่มีแล้ว -> ไม่ต้องใส่ใน finalRows (เท่ากับลบทิ้ง)
+        // (Skip row)
+      }
+    });
+
+    // 4.2 วนลูปข้อมูลใหม่ต้นทาง: เพื่อ Insert รายการที่ยังไม่มี
+    sourceMap.forEach((val, key) => {
+      if (!processedIds.has(key)) {
+        // CASE: รายการใหม่ -> เพิ่มต่อท้าย (Status ว่าง)
+        finalRows.push([...val, '']);
+      }
+    });
+
+    // 5. เขียนข้อมูลกลับลงไป (Overwrite เฉพาะส่วนเนื้อหา)
+    // ล้างข้อมูลเก่าก่อน (เฉพาะเนื้อหา ไม่รวมหัวตาราง)
+    if (targetLastRow > 1) {
+      targetSheet.getRange(2, 1, targetLastRow - 1, 11).clearContent();
+    }
+
+    // เขียนข้อมูลใหม่
+    if (finalRows.length > 0) {
+      targetSheet.getRange(2, 1, finalRows.length, 11).setValues(finalRows);
+    }
+
+    console.log("Smart Sync completed at " + new Date());
+
+  } catch (e) {
+    console.error("Error syncing data: " + e.message);
+  }
+}
